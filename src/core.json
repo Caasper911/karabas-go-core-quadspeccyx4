@@ -1,0 +1,113 @@
+{
+    "id": "speccywall",
+    "name": "SpeccyWall",
+    "visible": true,
+    "type": "osd",
+    "link": 2,
+    "order": 21,
+    "eeprom_bank": 255,
+    "rtc_mode": 0,
+    "roms": [
+        {
+            "filename": "roms/128.rom",
+            "address": 0
+        },
+        {
+            "filename": "roms/48.rom",
+            "address": 16384
+        }
+    ],
+    "boards": {
+        "go": {
+            "build": "26111401",
+            "bitstream": "karabas_go.bin"
+        }
+    },
+    "osd": [
+        {
+            "index": 2,
+            "type": "S",
+            "name": "Video",
+            "options": [
+                "720x576",
+                "1280x800"
+            ],
+            "default": 0,
+            "hotkey": "Menu+V"
+        },
+        {
+            "index": 5,
+            "type": "S",
+            "name": "Side stripes",
+            "options": [
+                "off",
+                "on"
+            ],
+            "default": 0
+        },
+        {
+            "type": "-"
+        },
+        {
+            "index": 0,
+            "type": "S",
+            "name": "Joystick L",
+            "options": [
+                "Kempston",
+                "Sinclair1",
+                "Sinclair2",
+                "Cursor",
+                "QAOPM",
+                "QAOPS"
+            ],
+            "default": 0,
+            "hotkey": "Menu+J"
+        },
+        {
+            "index": 1,
+            "type": "S",
+            "name": "Joystick R",
+            "options": [
+                "Kempston",
+                "Sinclair1",
+                "Sinclair2",
+                "Cursor",
+                "QAOPM",
+                "QAOPS"
+            ],
+            "default": 1,
+            "hotkey": "Menu+R"
+        },
+        {
+            "index": 7,
+            "type": "S",
+            "name": "AY mix",
+            "options": [
+                "ABC",
+                "ACB"
+            ],
+            "default": 0
+        },
+        {
+            "type": "-"
+        },
+        {
+            "index": 6,
+            "type": "T",
+            "name": "NMI",
+            "hotkey": "F11"
+        },
+        {
+            "index": 4,
+            "type": "T",
+            "name": "Reset All",
+            "hotkey": "Menu+F12"
+        },
+        {
+            "index": 3,
+            "type": "T",
+            "name": "Reset",
+            "hotkey": "F12"
+        }
+    ]
+}

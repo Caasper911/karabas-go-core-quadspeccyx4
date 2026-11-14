@@ -1,5 +1,11 @@
 This repository contains code under different terms. Each part keeps the terms of its authors.
 
+0. ROMs (src/roms/)
+   ----------------
+   128.rom, 48.rom: the ZX Spectrum 128 / 48 ROMs, copyright (c) Amstrad plc, not covered by the MIT license below
+   and no license to them is granted here. Amstrad allows them to be distributed with emulators, without charge for
+   them. They are included, as with emulators and other FPGA cores, so that the core works out of the box.
+
 1. tv80 (src/rtl/tv80/)
    --------------------
    tv80: copyright (c) 2004 Guy Hutchison, under the MIT-style license in the header of each file (the copy of
@@ -12,7 +18,10 @@ This repository contains code under different terms. Each part keeps the terms o
 
 3. Everything else - MIT License
    -----------------------------
-   All other files of this repository (the core, the build files, scripts, testbenches and documentation):
+   All other files of this repository (the core, the build files, scripts, testbenches and documentation;
+   src/rtl/zx/zx_timing.v, src/rtl/hid/zx_kbd.v, src/rtl/sound/ay_psg.v (its logic after ym2149.v of MikeJ /
+   Sorgelig), src/rtl/karabas_go_top.v, the build files and tools/rom2hex.py come from karabas-go-core-quadspeccy
+   under the same license):
 
    Copyright (c) 2026 the contributors of karabas-go-speccywall
 

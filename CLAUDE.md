@@ -5,10 +5,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Overview
 
 SpeccyWall for the Karabas Go / Mini / Mini G boards (Xilinx Spartan-6 XC6SLX25, ISE 14.7, XST): 16 Pentagon 128 on
-one FPGA, shown on one screen as a 4 x 4 grid (paper at every other pixel and line, a 1 pixel border) or the selected
-one full screen. Follows karabas-go-quadspeccy (`../karabas-go-quadspeccy`, 4 machines), but a machine is not a module
+one FPGA, shown on one screen (1280 x 800, frame locked to the Pentagon frame, 48.88 Hz: total 1568 x 960, pixel
+clock 21/8 clk_bus = 73.6 MHz, 3 VGA lines per Spectrum line) as a 4 x 4 grid (paper 256 x 192 1:1, a 1 pixel
+border) or the selected one full screen at scale 3 (decided 2026-11-14, docs/ARCHITECTURE.md "Видео"). Follows karabas-go-quadspeccy (`../karabas-go-quadspeccy`, 4 machines), but a machine is not a module
 any more: one CPU and one bus logic serve eight machines, the state of each machine is a context in distributed
-RAM. Board infrastructure (to come) as QuadSpeccy / karabas-go-core-tsconf: the git submodule `modules/`
+RAM. Board infrastructure as QuadSpeccy / karabas-go-core-tsconf: the git submodule `modules/`
 (karabas-go-modules; its `modules/CLAUDE.md` has the rules: Verilog-2001 for XST, no coregen, tests), MCU link v2,
 Makefile build, `core.json`.
 
@@ -18,7 +19,14 @@ same change as the code they describe.
 
 ## State
 
-Milestone 1 (the CPU) only: no core for a board yet.
+Milestones 1 (the CPU) and 2 (eight machines on SRAM, in simulation) done; milestone 3: the first core for the Go
+(`src/speccywall.kg`: eight machines, the selected one full screen, 720 x 576 or 1280 x 800), built, not yet tried on
+the board (the user tests on a Go).
+
+- `src/rtl/speccywall.v` (the core) and `karabas_go_top.v`; `rtl/video/zx_scr.v` (the screen of the selected machine
+  from the SRAM, pairs of characters through the video port), `rtl/video/vga_out.v` (pclk = 21/8 clk_bus from a second
+  PLL, 73.6 MHz, locked to the Pentagon frame, two rasters), `rtl/hid/zx_kbd.v` / `rtl/sound/ay_psg.v` from QuadSpeccy
+  (zx_kbd: sel 4 bits, Win+1..8, arrows on 4 columns x ROWS).
 
 - `src/rtl/tv80`: tv80 (as QuadSpeccy, from karabas_go_v6z80p with its fixes, marked `karabas:`). `tv80_oct.v`: one
   tv80 for eight CPUs, ONE clock per CPU (slot k of 8 = cen of CPU k; a T-state is 8 clocks of clk_bus 28 MHz). The
@@ -29,6 +37,26 @@ Milestone 1 (the CPU) only: no core for a board yet.
   <dir> [N]`, N = 8): never edit them; change the generator or `tv80_core.v` and run `src/sim/run_tv80o.sh`, which
   regenerates. The register file is not written while reset_n is low (the synchronous reset sees the old state in
   that clock; the asynchronous reference writes nothing).
+- `src/rtl/zx/zx_oct.v`: eight Pentagon 128 on one `tv80o_core` and one bus logic, the machine state in contexts
+  (distributed RAM indexed by the machine). Slot k = cen of CPU k (inputs from the contexts of machine k); slot k + 1
+  = bus logic of machine k on the live outputs `p_*` (decode as `pentagon.v` of QuadSpeccy at `cen_d`). One memory
+  request a clock at most, so no queue and no WAIT: a read at the start of T1 returns 3 clocks later (`c_mdat`), the
+  CPU takes it 15 clocks after the request; the shared ROM (block RAM, 32 KB, loader port) is delayed to the same
+  latency. RAM of machine m at SRAM byte {BASE, m, page, offset}. Ports #FE, #7FFD, AY copy (#FFFD / #BFFD, writes of
+  the selected machine out), Kempston #1F; INT = its value at slot 0 for all CPUs; a reset must last 16 T (AY clear).
+- `src/rtl/mem/sram_ctrl.v`: the SRAM (2M x 16, 10 ns, MRD_N / MWR_N per byte), one access per clk_bus: MA / MRD_N
+  in clk_bus IOB registers for the whole clock, the read word taken at the next clk_bus edge (35.7 ns, as TS-Conf);
+  a write: MWR_N low from the 1st to the 2nd clk_sys edge of the clock, data from the 1st to the 3rd (clk_sys
+  registers; the phase from a clk_bus toggle sampled on clk_sys). Video port takes clocks without a CPU request.
+  Word q two clocks after the request clock.
+- `src/rtl/zx/zx_timing.v`: the raster of QuadSpeccy (slot 0 = the clock of ce_cpu: `slot <= ce_cpu ? 1 : slot + 1`).
+
+## Build
+
+- `cd src && make go` as QuadSpeccy (see its CLAUDE.md: MSYS2 make from Git Bash, `make_core.py` of the sibling
+  `../karabas-go-tools`, `make go-report`); only the Go for now (`BOARDS = go`). About 10 minutes. The `.bin` / `.kg`
+  are the release, committed. Check the `.syr` Clock Information (pclk, clk_bus, clk_sys, MCU_SCK only).
+- Measured: 3147 LUT, 1047 slices, clk_bus 32.7 ns of 35.7, pclk 13.51 of 13.59 (the blend of kg_l2_osd_overlay).
 
 ## Tests
 
@@ -37,8 +65,20 @@ Milestone 1 (the CPU) only: no core for a board yet.
   outputs every clock, the state (ACC, F, PC, SP, I, register file) once per T-state. Prints `tb_tv80o: 0 errors`.
   Env: `SEED=<n>`, `NOGEN=1` (keep a hand-mutated `tv80o_core.v`), `FUSE_DEFS="-d TRACE_CPU=k -d TRACE_FROM=<clock>"`
   with `SHOW=.` for a trace. Default 2 M clocks takes about 4 minutes.
-- `src/test/run_timing.sh`: XST / map / par of `cpu8_top.v` (tv80_oct, the PLL of the core, LFSR inputs, outputs
+- `src/test/run_timing.sh [cpu8]`: XST / map / par of `cpu8_top.v` (tv80_oct, the PLL of the core, LFSR inputs, outputs
   folded into one pin) on the XC6SLX25 with the options of QuadSpeccy; prints the utilization and the minimum
   period (clk_bus budget 35.7 ns). About 1 minute. Measured: 22.7-24.4 ns, 564-582 slices; `tv80_quad` in the same harness
   21.2 ns (31.4 ns inside the full QuadSpeccy core).
+- `src/sim/run_wall.sh [clocks]`: `zx_oct` + `sram_ctrl` + `sram_model.v` (async SRAM with tAA, tWP, tAS / tAW /
+  tDW / tDH and bus fight checks; X accesses of uninitialized CPU registers counted apart) against eight golden
+  machines (`tv80_core` + a behavioural bus written again in `tb_wall.v`, writes at the start of T2 as the engine);
+  all CPU outputs every T-state, at the end the 128 KB of each machine, border, beeper, MIC, #7FFD, AY registers;
+  `late` never; a random video reader checked. Random code by default (2 M clocks ~ 4 min); `ROM=1` the ROM 128
+  (~45 s per frame of 573440 clocks; machines out of reset 1000 T apart; `work_w/screens.png` via
+  `tools/render_wall.py`); `SEED`, `FUSE_DEFS="-d WATCH=22'h<addr>"` traces the writes of one byte.
+- `src/test/run_timing.sh wall8`: `zx_oct` + `sram_ctrl` on the SRAM pins of the Go (`wall8.ucf` with the SRAM
+  constraints of TS-Conf): 1679 LUT, 563 slices, 16 RAMB16, clk_bus 21.3 ns.
+- `src/sim/run_video.sh [frames]`: zx_scr + sram_ctrl + the SRAM model + vga_out, every visible VGA pixel against the
+  memory, the CPU port of the SRAM as busy as eight machines make it; `MODE=0` 720 x 576, `STRIPES=1`, `SCR7=1`,
+  `BUSY=0`. About 30 s per frame.
 - ISim 14.7 has no `$writememh` / `$clog2`.

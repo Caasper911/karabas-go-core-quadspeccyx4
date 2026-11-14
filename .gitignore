@@ -1,5 +1,6 @@
 # simulation
 src/sim/work_o/
+src/sim/work_w/
 src/sim/work/
 
 # timing test of tv80_oct (src/test/run_timing.sh)
@@ -8,3 +9,42 @@ src/test/cpu8.prj
 src/test/_xmsgs/
 src/test/*.lso
 src/test/xlnx_auto_0_xdb/
+src/sim/work_v/
+
+# ISE intermediate files of the core build (the .bin and .kg files are the release and are committed)
+src/xst/
+src/_ngo/
+src/_xmsgs/
+src/xlnx_auto_0_xdb/
+src/iseconfig/
+src/*.ngc
+src/*.ngd
+src/*.ngr
+src/*.syr
+src/*.lso
+src/*.bld
+src/*.pcf
+src/*.ncd
+src/*.ngm
+src/*.map
+src/*.mrp
+src/*.xrpt
+src/*.par
+src/*.pad
+src/*_pad.csv
+src/*_pad.txt
+src/*.twr
+src/*.twx
+src/*.unroutes
+src/*.xpi
+src/*.ptwx
+src/*.bgn
+src/*.bit
+src/*.drc
+src/*.xwbt
+src/*_summary.xml
+src/*_usage.xml
+src/*.stamp
+src/*.log
+src/*.html
+src/webtalk_pn.xml

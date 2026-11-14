@@ -1,7 +1,7 @@
 set -tmpdir "work/xst/projnav.tmp"
 set -xsthdpdir "work/xst"
 run
--ifn cpu8.prj
+-ifn work/cpu8.prj
 -ofn work/cpu8
 -ofmt NGC
 -p xc6slx25-2-ftg256
