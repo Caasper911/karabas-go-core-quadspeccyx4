@@ -92,7 +92,7 @@
 - [x] Обёртки `karabas_{mini,minig}_top.v` (из QuadSpeccy), ucf, prj; `core.json` на три платы
 - [x] HDMI на `pclk` 73,6 МГц: OSERDES2 + BUFPLL + PLL ×10 (`tmds_oserdes.v`, `hdmi_enc.vhd`); сериализатор модулей на
       368 МГц не сошёлся (−2,3 нс, DCM выше 333 МГц); `run_tmds.sh` — 4313 слов без ошибок
-- [x] `pclk` с DCM вместо второго PLL (два PLL у XC6SLX25: основной и HDMI)
+- [x] `pclk` с DCM вместо второго PLL (два PLL у XC6SLX25: основной и HDMI); на Go проверено — всё работает (2026-11-14)
 - [x] Сборка Go: 1918 слайсов (51 %), Mini: 2348 (62 %), все constraints
 - [x] Сборка Mini G: 2337 слайсов (62 %), все constraints (`pclkx2` 6,66 из 6,80, `pclk` 13,18 из 13,59)
 - [ ] Железо Mini / Mini G (у пользователя Go)
