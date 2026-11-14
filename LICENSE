@@ -16,6 +16,7 @@ This repository contains code under different terms. Each part keeps the terms o
    ----------------------------------------------
    Andy Karpov and contributors: the terms of that repository. src/rtl/video/hdmi_enc.vhd is a copy of its
    zhdmi_tx.vhd (Francois Galea, Andy Karpov) without the serializers: GNU GPL v3 or later, as its header says.
+   src/rtl/video/osd_overlay.v is a copy of its kg_l2_osd_overlay.v with a horizontal scale of its own.
 
 3. Everything else - MIT License
    -----------------------------

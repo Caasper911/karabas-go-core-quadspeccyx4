@@ -22,8 +22,8 @@
  the machine next to it (4 columns, 4 rows), Win + ` the wall / the selected machine full screen (the wall after the start; 720 x 576 is always
  full screen).
  OSD (core.json "osd", the "index" of the items): 0 joystick L, 1 joystick R, 2 video (0 720 x 576, 1 1280 x 800: the default),
- 3 reset of the selected machine (F12), 4 reset of all (Menu+F12), 5 stripes in the side margins of 1280 x 800,
- 6 NMI of the selected machine (F11), 7 AY mix (0 ABC, 1 ACB), 8 the diagnostics squares (bring-up, below).
+ 3 reset of the selected machine (F12), 4 reset of all (Menu+F12), 5 the colour of the frame of the selected cell
+ in the wall (0..7 ZX colours, default 4 green; 8 transparent: shown 1 s after a move), 6 NMI of the selected machine (F11), 7 AY mix (0 ABC, 1 ACB). The diagnostics squares: parameter DIAG.
 
  ROM loader: the 32 KB of the shared ROM (128 editor at 0, 48 BASIC at 16384) written straight into the block RAM of
  zx_oct, the machines held in reset meanwhile.
@@ -32,7 +32,8 @@
 */
 
 module speccywall #(
-	parameter MEMTEST_AW = 21           // the words of the SRAM self test (sram_test.v)
+	parameter MEMTEST_AW = 21,          // the words of the SRAM self test (sram_test.v)
+	parameter DIAG = 0                  // 1: the diagnostics squares of the bring-up (zx_scr, below) on the screen
 ) (
 	input wire CLK_50MHZ,
 
@@ -133,13 +134,13 @@ wire [4:0] osd_px, osd_ph;
 wire [3:0] osd_py;
 wire [5:0] osd_pw;
 
-// the OSD switches: 9 registers of 8 bits, switch n = softsw[n*8 +: 8]; SW_INIT the defaults of core.json
-wire [9*8-1:0] softsw;
+// the OSD switches: 8 registers of 8 bits, switch n = softsw[n*8 +: 8]; SW_INIT the defaults of core.json
+wire [8*8-1:0] softsw;
 
 kg_mcu2 #(
 	.CAPS(16'h0010),             // bit 4: LD_READY (always ready: the ROM is written a byte a clock)
-	.SW_N(9),
-	.SW_INIT(72'h00_00_00_00_00_00_01_01_00),
+	.SW_N(8),
+	.SW_INIT(64'h00_00_04_00_00_01_01_00),
 	.CS_FILTER(3),
 	.ENABLE_OSD(1),
 	.ENABLE_IMG(0),
@@ -202,10 +203,9 @@ wire [2:0] joy_type_r = softsw[10:8];
 wire sw_video = softsw[16];
 wire sw_reset = softsw[24];
 wire sw_reset_all = softsw[32];
-wire sw_stripes = softsw[40];
+wire [3:0] sw_frame_col = softsw[43:40];
 wire sw_nmi = softsw[48];
 wire sw_acb = softsw[56];
-wire sw_diag = softsw[64];
 
 // ---------------------------------------------------------------------------------------------
 // keyboard
@@ -469,7 +469,7 @@ wire [3:0] pix;
 
 zx_scr scr(
 	.clk(clk_bus), .ce7(s_ce7), .hc(s_hc), .vc(s_vc), .flash(s_fl),
-	.m(sel), .scr7(v_scr7), .border(v_border), .diag_en(sw_diag), .diag(diag),
+	.m(sel), .scr7(v_scr7), .border(v_border), .diag_en(DIAG != 0), .diag(diag),
 	.v_req(s_req), .v_addr(s_addr), .v_ack(v_ack & show_full), .q(m_q),
 	.pix(pix)
 );
@@ -491,8 +491,8 @@ wire vo_hs, vo_vs, vo_de, hs_neg, vs_neg;
 
 vga_out #(.ROWS(4)) vga(
 	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .w_ce7(s_ce7), .w_hc(s_hc), .w_vc(s_vc), .pix(pix),
-	.mode_i(sw_video), .stripes_i(sw_stripes),
-	.wall_i(~show_full), .sel_i(sel), .flash_i(frame[4]),
+	.mode_i(sw_video),
+	.wall_i(~show_full), .sel_i(sel), .flash_i(frame[4]), .frame_col(sw_frame_col),
 	.wb_we(wb_we), .wb_addr(wb_addr), .wb_data(wb_data), .brd_i(w_brd),
 	.pclk(pclk),
 	.r(vo_r), .g(vo_g), .b(vo_b), .hs(vo_hs), .vs(vo_vs), .de(vo_de), .hs_neg(hs_neg), .vs_neg(vs_neg)
@@ -501,11 +501,14 @@ vga_out #(.ROWS(4)) vga(
 // the bitmap OSD of link v2, centred on de; it takes high active syncs and delays everything by 2 clocks
 wire ov_hs, ov_vs, ov_de;
 wire [23:0] ov_rgb;
-kg_l2_osd_overlay overlay(
+// (a copy of kg_l2_osd_overlay with a horizontal scale: in 720 x 576 a pixel is 2.625 clocks of pclk, the OSD is 2 lines
+// and 5 clocks an OSD pixel there; 1280 x 800 as the modules: from the area, 4)
+osd_overlay overlay(
 	.wclk(clk_bus),
 	.osd_wr(osd_wr), .osd_waddr(osd_waddr), .osd_wdata(osd_wdata), .osd_en(osd_en),
 	.osd_fg(osd_fg), .osd_bg(osd_bg), .osd_alpha(osd_alpha),
 	.osd_px(osd_px), .osd_py(osd_py), .osd_pw(osd_pw), .osd_ph(osd_ph), .osd_place(osd_place), .osd_zoom(osd_zoom),
+	.s_force(sw_video ? 4'd0 : 4'd2), .sx_force(sw_video ? 4'd0 : 4'd5),
 	.icon_on(8'd0), .icon_act(8'd0),
 	.clk(pclk),
 	.rgb_i({vo_r, vo_g, vo_b}), .hs_i(vo_hs), .vs_i(vo_vs), .de_i(vo_de),

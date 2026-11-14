@@ -19,15 +19,15 @@
     ],
     "boards": {
         "go": {
-            "build": "26111404",
+            "build": "26111501",
             "bitstream": "karabas_go.bin"
         },
         "mini": {
-            "build": "26111404",
+            "build": "26111501",
             "bitstream": "karabas_mini.bin"
         },
         "minig": {
-            "build": "26111404",
+            "build": "26111501",
             "bitstream": "karabas_minig.bin"
         }
     },
@@ -42,16 +42,6 @@
             ],
             "default": 1,
             "hotkey": "Menu+V"
-        },
-        {
-            "index": 5,
-            "type": "S",
-            "name": "Side stripes",
-            "options": [
-                "off",
-                "on"
-            ],
-            "default": 0
         },
         {
             "type": "-"
@@ -97,14 +87,21 @@
             "default": 0
         },
         {
-            "index": 8,
+            "index": 5,
             "type": "S",
-            "name": "Diagnostics",
+            "name": "Frame colour",
             "options": [
-                "off",
-                "on"
+                "Black",
+                "Blue",
+                "Red",
+                "Magenta",
+                "Green",
+                "Cyan",
+                "Yellow",
+                "White",
+                "Transparent"
             ],
-            "default": 0
+            "default": 4
         },
         {
             "type": "-"

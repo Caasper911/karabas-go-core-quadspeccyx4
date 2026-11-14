@@ -20,7 +20,7 @@ same change as the code they describe.
 ## State
 
 Milestones 1 (the CPU), 2 (eight machines on SRAM), 3 (the first Go core), 4 (the wall) and 6 (16 machines) done;
-milestone 5 (Mini / Mini G) built, not tried on those boards (the user has a Go).
+milestone 5 (Mini / Mini G) done: works on all three boards (2026-11-15).
 - Milestone 5: `karabas_{mini,minig}_top.v` (QuadSpeccy's), HDMI `rtl/video/hdmi_out.v` = `hdmi_enc.vhd` (zhdmi_tx of
   the modules without its serializers, GPL) + `tmds_oserdes.v` (PLL x10 on pclk, BUFPLL, OSERDES2 master/slave per
   lane, XAPP495 style; the fabric serializer at 368 MHz failed). pclk now from a DCM (CLKFX 21/8 of clk_bus): the

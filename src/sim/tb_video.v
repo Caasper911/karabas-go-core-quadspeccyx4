@@ -13,7 +13,7 @@
  WALL=1 (mode 1): the wall instead (wall_fetch.v): eight machines (two cell rows), machine m with the screen page
  7 when m[0] ^ m[2] and the border colour 3 m + 1; every pixel of the grid against the memory, SEL the selected cell.
 
- Defines: MODE (1: 1280 x 800, 0: 720 x 576), STRIPES, SCR7, FRAMES (default 3), BUSY, WALL, SEL. Prints "tb_video: <n> errors".
+ Defines: MODE (1: 1280 x 800, 0: 720 x 576), SCR7, FRAMES (default 3), BUSY, WALL, SEL. Prints "tb_video: <n> errors".
 */
 
 `ifndef MODE
@@ -24,9 +24,6 @@
 `endif
 `ifndef SCR7
 `define SCR7 0
-`endif
-`ifndef STRIPES
-`define STRIPES 0
 `endif
 `ifndef BUSY
 `define BUSY 1
@@ -97,9 +94,9 @@ sram_ctrl sram (
 sram_model model (.A(MA), .DQ(MD), .RD_N(MRD_N), .WR_N(MWR_N), .drv(sram.md_oe[0]));
 
 wire [3:0] pix;
-zx_scr #(.BASE(2'd0)) scr (
+zx_scr scr (
 	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .flash(frame[4]),
-	.m(M), .scr7(`SCR7 != 0), .border(BORDER), .diag_en(1'b0), .diag(96'd0),
+	.m({1'b0, M}), .scr7(`SCR7 != 0), .border(BORDER), .diag_en(1'b0), .diag(96'd0),
 	.v_req(s_req), .v_addr(s_addr), .v_ack(v_ack & (`WALL == 0)), .q(q),
 	.pix(pix)
 );
@@ -128,8 +125,8 @@ wall_fetch #(.ROWS(2)) wall (
 wire [7:0] r, g, b;
 wire hs, vs, de, hs_neg, vs_neg;
 vga_out vga (
-	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .w_ce7(ce7), .w_hc(hc), .w_vc(vc), .pix(pix), .mode_i(`MODE != 0), .stripes_i(`STRIPES != 0),
-	.wall_i(`WALL != 0), .sel_i(`SEL), .flash_i(frame[4]),
+	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .w_ce7(ce7), .w_hc(hc), .w_vc(vc), .pix(pix), .mode_i(`MODE != 0),
+	.wall_i(`WALL != 0), .sel_i(4'd`SEL), .flash_i(frame[4]), .frame_col(4'd4),
 	.wb_we(wb_we), .wb_addr(wb_addr), .wb_data(wb_data), .brd_i(brd),
 	.pclk(pclk), .r(r), .g(g), .b(b), .hs(hs), .vs(vs), .de(de), .hs_neg(hs_neg), .vs_neg(vs_neg)
 );
@@ -207,23 +204,20 @@ function [23:0] expect_rgb;
 			lc = y % 200;
 			if (cr >= 2)
 				expect_rgb = 24'h303030;
+			else if (cr * 4 + cc == `SEL && (cx < 2 || cx >= 318 || lc < 2 || lc >= 198))
+				expect_rgb = 24'h00FF00;     // the frame of the selected cell: green
 			else if (cx < 32 || cx >= 288 || lc < 4 || lc >= 196)
 				expect_rgb = rgb({1'b0, m_brd(cr * 4 + cc)});
 			else
 				expect_rgb = rgb(wall_pix(cr * 4 + cc, lc - 4, cx - 32));
 		end else if (`MODE != 0) begin
 			py = (848 + y) % 960;
-			if (`WALL == 0 && x >= 112 && x < 1168 && (py >= 849 || py < 687)) begin
-				sl = py / 3;
-				sx = (x - 112) / 3;
-				h = (sx < 48) ? sx + 400 : sx - 48;
-				expect_rgb = rgb(zx_pix(sl, h));
-			end else if (x == 0 || x == 1279 || y == 0 || y == 799)
-				expect_rgb = 24'h808080;
-			else if (`STRIPES != 0 && x % 2 == 1)
-				expect_rgb = 24'hFFFFFF;
-			else
-				expect_rgb = 24'h000000;
+			// the whole 1280 x 800 at scale 3: the paper at x 255, its border 64 pixels each side, further out the
+			// outermost border pixel of the line
+			sl = py / 3;
+			sx = x / 3;
+			h = (sx < 21) ? 384 : (sx < 85) ? sx + 363 : (sx >= 405) ? 319 : sx - 85;
+			expect_rgb = rgb(zx_pix(sl, h));
 		end else begin
 			py = (544 + y) % 640;
 			sl = py / 2;

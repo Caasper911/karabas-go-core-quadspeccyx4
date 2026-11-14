@@ -16,7 +16,7 @@ MINGW*|MSYS*|CYGWIN*)
 	EXE=./tb_video ;;
 esac
 mkdir -p work_v
-DEFS="-d FRAMES=${1:-3} -d MODE=${MODE:-1} -d WALL=${WALL:-0} -d SEL=${SEL:-5} -d STRIPES=${STRIPES:-0} -d SCR7=${SCR7:-0} -d BUSY=${BUSY:-1}"
+DEFS="-d FRAMES=${1:-3} -d MODE=${MODE:-1} -d WALL=${WALL:-0} -d SEL=${SEL:-5} -d SCR7=${SCR7:-0} -d BUSY=${BUSY:-1}"
 cat > work_v/tb.prj <<PRJ
 verilog work "../../../modules/rtl/mem/kg_sdpram.v"
 verilog work "../../rtl/zx/zx_timing.v"
