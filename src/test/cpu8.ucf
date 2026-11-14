@@ -1,0 +1,5 @@
+# Timing test of tv80_oct (cpu8_top.v): the clock pin and one output of the Karabas Go
+NET "CLK_50MHZ" LOC="T8" | IOSTANDARD = LVTTL;
+NET "TAPE_OUT"  LOC="M13" | IOSTANDARD = LVCMOS33;
+NET "CLK_50MHZ" TNM_NET = "CLK_50MHZ";
+TIMESPEC "TS_CLK_50MHZ" = PERIOD "CLK_50MHZ" 20 ns HIGH 50%;

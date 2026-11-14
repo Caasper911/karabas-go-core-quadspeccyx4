@@ -1,0 +1,7 @@
+# simulation
+src/sim/work_o/
+src/sim/work/
+
+# timing test of tv80_oct (src/test/run_timing.sh)
+src/test/work/
+src/test/cpu8.prj
