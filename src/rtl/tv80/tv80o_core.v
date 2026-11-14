@@ -134,6 +134,9 @@ module tv80o_core (
   reg [7:0] I_m [0:7];
   reg [7:0] I_n;
   wire [7:0] I = I_m[th];
+  reg [7:0] R_m [0:7];
+  reg [7:0] R_n;
+  wire [7:0] R = R_m[th];
   reg [15:0] SP_m [0:7];
   reg [15:0] SP_n;
   wire [15:0] SP = SP_m[th];
@@ -517,6 +520,7 @@ module tv80o_core (
       Ap_n = Ap;
       Fp_n = Fp;
       I_n = I;
+      R_n = R;
       SP_n = SP;
       Alternate_n = Alternate;
       Read_To_Reg_r_n = Read_To_Reg_r;
@@ -544,6 +548,7 @@ module tv80o_core (
           Ap_n = 8'hFF;
           Fp_n = 8'hFF;
           I_n = 0;
+          R_n = 0;              // karabas: always (was only with TV80_REFRESH)
           SP_n = 16'hFFFF;
           Alternate_n = 1'b0;
 
@@ -589,6 +594,12 @@ module tv80o_core (
                   // mcycle == 1 && tstate == 1, 2, || 3
                   if (tstate[2] && wait_n == 1'b1 ) 
                     begin
+                      // karabas: R counts the M1 cycles (bits 6..0, bit 7 kept) without TV80_REFRESH too (that define
+                      // also puts the refresh address on A, which the cores do not want): without it R stayed 0 and
+                      // LD A,R gave 0, so games that take random numbers from R (Starriders II: LD A,R / AND 7) did
+                      // their "one in eight" things every time
+                      if (Mode < 2 )
+                        R_n[6:0] = R[6:0] + 1;
                       if (Jump == 1'b0 && Call == 1'b0 && NMICycle == 1'b0 && IntCycle == 1'b0 && ~ (Halt_FF == 1'b1 || Halt == 1'b1) ) 
                         begin
                           PC_n = PC16;
@@ -890,10 +901,11 @@ module tv80o_core (
                         
                         2'b01 :
                           begin
-                            ACC_n = 0;
+                            // karabas: LD A,R gives R and its S / Z (were 0 and those of I)
+                            ACC_n = R;
                             F_n[Flag_P] = IntE_FF2;
-			    F_n[Flag_Z] = (I == 0);
-			    F_n[Flag_S] = I[7];
+			    F_n[Flag_Z] = (R == 0);
+			    F_n[Flag_S] = R[7];
 			    F_n[Flag_H] = 0;
 			    F_n[Flag_N] = 0; 
                           end
@@ -901,7 +913,9 @@ module tv80o_core (
                         2'b10 :
                           I_n = ACC;
 
-                        default : ;
+ 			// karabas: LD R,A always (was only with TV80_REFRESH)
+                        default :
+                          R_n = ACC;
                       endcase
                     end
                 end // if (tstate == 3 )
@@ -1022,6 +1036,7 @@ module tv80o_core (
       Ap_m[th] <= Ap_n;
       Fp_m[th] <= Fp_n;
       I_m[th] <= I_n;
+      R_m[th] <= R_n;
       SP_m[th] <= SP_n;
       Alternate_m[th] <= Alternate_n;
       Read_To_Reg_r_m[th] <= Read_To_Reg_r_n;

@@ -416,7 +416,7 @@ generate
 		always @(negedge clk_bus)
 			if (slot == ((g + 1) & 7) && !loading && !frozen && !reset[g] && settle[g] == 0) begin
 				st_bad = eng.core.ACC_m[g] !== cpu.ACC || eng.core.F_m[g] !== cpu.F || eng.core.PC_m[g] !== cpu.PC ||
-					eng.core.SP_m[g] !== cpu.SP || eng.core.I_m[g] !== cpu.I || eng.core.IntE_FF1_m[g] !== cpu.IntE_FF1 ||
+					eng.core.SP_m[g] !== cpu.SP || eng.core.I_m[g] !== cpu.I || eng.core.R_m[g] !== cpu.R || eng.core.IntE_FF1_m[g] !== cpu.IntE_FF1 ||
 					eng.core.IntE_FF2_m[g] !== cpu.IntE_FF2 || eng.core.IR_m[g] !== cpu.IR || eng.core.INT_s_m[g] !== cpu.INT_s ||
 					(^g_di[g] !== 1'bx && eng.c_di[g] !== g_di[g]);
 				for (gr = 0; gr < 8; gr = gr + 1)

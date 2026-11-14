@@ -13,6 +13,9 @@ src/sim/work_v/
 src/sim/work_c/
 src/sim/work_ps/
 src/sim/work_t/
+src/sim/work_r/
+src/sim/work_s/
+src/sim/work_i/
 
 # ISE intermediate files of the core build (the .bin and .kg files are the release and are committed)
 src/xst/
@@ -51,3 +54,6 @@ src/*.stamp
 src/*.log
 src/*.html
 src/webtalk_pn.xml
+
+# the user's snapshots of games for src/sim/run_sna.sh (not ours to publish)
+examples/

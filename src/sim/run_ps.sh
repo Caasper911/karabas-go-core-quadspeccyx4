@@ -47,7 +47,7 @@ verilog work "../sram_model.v"
 verilog work "../tb_ps.v"
 verilog work "$GLBL"
 PRJ
-fuse -intstyle silent -prj tb.prj -L unisims_ver -L simprims_ver -o $EXE -d CLOCKS=${1:-2000000} -d TRACE=${TRACE:-0} work.tb_ps work.glbl > fuse.log 2>&1 || { grep -E "ERROR" fuse.log | head -30; exit 1; }
+fuse -intstyle silent -prj tb.prj -L unisims_ver -L simprims_ver -o $EXE -d CLOCKS=${1:-2000000} -d TRACE=${TRACE:-0} ${FUSE_DEFS} work.tb_ps work.glbl > fuse.log 2>&1 || { grep -E "ERROR" fuse.log | head -30; exit 1; }
 printf 'run all\nquit\n' > run.tcl
 $EXE -intstyle silent -tclbatch run.tcl | tee sim.log | grep -vE "^(Stopped|INFO|WARNING|ISim|This is|Time res|Simulator|Finished|---|\s*$)" | head -60 || true
 grep -q "tb_ps: 0 errors" sim.log

@@ -6,7 +6,8 @@
 
  zx_oct after synthesis (XST, netgen: zx_oct_ps) against the RTL zx_oct, clock for clock: the same inputs (the ROM 128
  loaded through the loader port, the machines out of reset together, then INT of the raster), each engine on its own
- sram_arb (the second input idle), sram_ctrl and SRAM model. Every output of both compared every clock. Prints "tb_ps: <n> errors".
+ sram_arb (the second input idle), sram_ctrl and SRAM model. INTROM: the program of tb_int.v instead of the ROM 128 (the
+ interrupts every frame). Every output of both compared every clock. Prints "tb_ps: <n> errors".
 */
 
 `ifndef TRACE
@@ -42,7 +43,20 @@ always @(posedge clk_bus)
 
 // the ROM through the loader port, then the machines out of reset (machine k 2000 clocks after k - 1)
 reg [15:0] romw [0:16383];
-initial $readmemh("roms.hex", romw);
+integer ri;
+initial begin
+	$readmemh("roms.hex", romw);
+`ifdef INTROM
+	// the program of tb_int.v (IM 1, EI, HALT loop; the handler PUSH AF / delay / POP AF / EI / RET): the interrupts
+	for (ri = 0; ri < 16384; ri = ri + 1) romw[ri] = 16'h0000;
+	romw[0] = 16'h31F3; romw[1] = 16'h8000; romw[2] = 16'h56ED; romw[3] = 16'h76FB; romw[4] = 16'hFD18;
+	romw['h1C] = 16'h06F5; romw['h1D] = 16'h1010; romw['h1E] = 16'hF1FE; romw['h1F] = 16'hC9FB;
+`endif
+`ifdef SNA
+	// a snapshot (tools/sna2sim.py): its ROM; its RAM into machine 0 of both models (below)
+	$readmemh("rom.hex", romw);
+`endif
+end
 reg rom_we = 1'b0;
 reg [14:0] rom_wa = 15'd0;
 reg [7:0] rom_wd = 8'd0;
@@ -53,14 +67,18 @@ reg [2:0] sel = 3'd0;
 always @(posedge clk_bus) begin
 	n = n + 1;
 	rom_we <= 1'b0;
-	if (li < 16'd32768) begin
+	if (n > 20 && li < 16'd32768) begin    // after the GSR of the netlist (100 ns: a write then is lost)
 		rom_we <= 1'b1;
 		rom_wa <= li[14:0];
 		rom_wd <= li[0] ? romw[li[14:1]][15:8] : romw[li[14:1]][7:0];
 		li <= li + 1'd1;
 	end
+`ifdef SNA
+	if (n == 40000) reset[0] <= 1'b0;      // machine 0 only
+`else
 	for (k = 0; k < 8; k = k + 1)
 		if (n == 40000 + 2000 * k) reset[k] <= 1'b0;
+`endif
 	if (n % 300000 == 0) sel <= sel + 1'd1;
 end
 
@@ -128,12 +146,24 @@ generate
 	end
 endgenerate
 
-integer i;
-initial
+integer i, sa;
+`ifdef SNA
+reg [15:0] ramw [0:24575];
+`endif
+initial begin
 	for (i = 0; i < (1 << 21); i = i + 1) begin
 		g_mem[0].model.mem[i] = i[15:0];
 		g_mem[1].model.mem[i] = i[15:0];
 	end
+`ifdef SNA
+	$readmemh("ram.hex", ramw);
+	for (i = 0; i < 24576; i = i + 1) begin
+		sa = 16'h4000 + 2 * i;
+		g_mem[0].model.mem[{2'b00, 3'd0, (sa < 16'h8000) ? 3'd5 : (sa < 16'hC000) ? 3'd2 : 3'd0, sa[13:1]}] = ramw[i];
+		g_mem[1].model.mem[{2'b00, 3'd0, (sa < 16'h8000) ? 3'd5 : (sa < 16'hC000) ? 3'd2 : 3'd0, sa[13:1]}] = ramw[i];
+	end
+`endif
+end
 
 wire [7:0] r_out = {e_req[0], e_we[0], e_scr7[0], e_ayw[0]};
 integer errors = 0, tr0 = 0, tr1 = 0;

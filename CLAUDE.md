@@ -100,7 +100,13 @@ milestone 5 (Mini / Mini G) done: works on all three boards (2026-11-15).
 - `src/sim/run_video.sh [frames]`: zx_scr + sram_ctrl + the SRAM model + vga_out, every visible VGA pixel against the
   memory, the CPU port of the SRAM as busy as eight machines make it; `MODE=0` 720 x 576, `STRIPES=1`, `SCR7=1`,
   `BUSY=0`, `WALL=1` the wall (wall_fetch, 8 machines with their own page and border, `SEL`). About 30 s per frame.
-- `src/sim/run_ps.sh [clocks]`: XST + netgen of zx_oct, tb_ps.v boots the ROM 128 in the netlist and the RTL, all
+- `src/sim/run_int.sh [frames]` (`SHORT=1`): the frame interrupt of the 16 machines: position (17988 T before the
+  paper), 32 T, period, acknowledges per frame. `src/sim/run_sna.sh <file.sna> [frames]`: a 48K snapshot
+  (`tools/sna2sim.py`: the RAM into machine 0, a 48 ROM with a loader of the registers in place of SA-BYTES) on the
+  two engines; per frame the acknowledges and the ports. `src/sim/run_r.sh`: the R register of tv80_core against
+  the Z80 (tv80 had no R without TV80_REFRESH: LD A,R = 0, fixed 2026-11-15; the tests compare R now).
+- `src/sim/run_ps.sh [clocks]`: (`FUSE_DEFS="-d INTROM"` the IM 1 program of tb_int, `-d SNA` the snapshot of
+  work_ps/rom.hex, ram.hex) XST + netgen of zx_oct, tb_ps.v boots the ROM 128 in the netlist and the RTL, all
   outputs every clock (`TRACE=n` the first PC changes; `XST_SED` edits the XST options). 1.5 M clocks ~10 min.
 - `src/sim/run_core.sh [clocks]`: the whole core (PLLs, kg_mcu2 idle, busy forced off) on the SRAM model, prints
   the diagnostics vector every 100 000 clocks; slow (~100 k clocks a minute or two).

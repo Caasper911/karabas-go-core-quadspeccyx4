@@ -96,9 +96,7 @@ module tv80_core (/*AUTOARG*/
   reg [7:0]     ACC, F;
   reg [7:0]     Ap, Fp;
   reg [7:0]     I;
-`ifdef TV80_REFRESH
-  reg [7:0]     R;
-`endif
+  reg [7:0]     R;                // karabas: always (was only with TV80_REFRESH)
   reg [15:0]    SP, PC;
   reg [7:0]     RegDIH;
   reg [7:0]     RegDIL;
@@ -394,9 +392,7 @@ module tv80_core (/*AUTOARG*/
           Ap <= `TV80DELAY 8'hFF;
           Fp <= `TV80DELAY 8'hFF;
           I <= `TV80DELAY 0;
-          `ifdef TV80_REFRESH
-          R <= `TV80DELAY 0;
-          `endif
+          R <= `TV80DELAY 0;              // karabas: always (was only with TV80_REFRESH)
           SP <= `TV80DELAY 16'hFFFF;
           Alternate <= `TV80DELAY 1'b0;
 
@@ -447,9 +443,14 @@ module tv80_core (/*AUTOARG*/
                         begin
                           A[7:0] <= `TV80DELAY R;
                           A[15:8] <= `TV80DELAY I;
-                          R[6:0] <= `TV80DELAY R[6:0] + 1;
                         end
                       `endif
+                      // karabas: R counts the M1 cycles (bits 6..0, bit 7 kept) without TV80_REFRESH too (that define
+                      // also puts the refresh address on A, which the cores do not want): without it R stayed 0 and
+                      // LD A,R gave 0, so games that take random numbers from R (Starriders II: LD A,R / AND 7) did
+                      // their "one in eight" things every time
+                      if (Mode < 2 )
+                        R[6:0] <= `TV80DELAY R[6:0] + 1;
                       if (Jump == 1'b0 && Call == 1'b0 && NMICycle == 1'b0 && IntCycle == 1'b0 && ~ (Halt_FF == 1'b1 || Halt == 1'b1) ) 
                         begin
                           PC <= `TV80DELAY PC16;
@@ -751,14 +752,11 @@ module tv80_core (/*AUTOARG*/
                         
                         2'b01 :
                           begin
-                            `ifdef TV80_REFRESH
+                            // karabas: LD A,R gives R and its S / Z (were 0 and those of I)
                             ACC <= `TV80DELAY R;
-                            `else
-                            ACC <= `TV80DELAY 0;
-                            `endif
                             F[Flag_P] <= `TV80DELAY IntE_FF2;
-			    F[Flag_Z] <= (I == 0);
-			    F[Flag_S] <= I[7];
+			    F[Flag_Z] <= (R == 0);
+			    F[Flag_S] <= R[7];
 			    F[Flag_H] <= 0;
 			    F[Flag_N] <= 0; 
                           end
@@ -766,12 +764,9 @@ module tv80_core (/*AUTOARG*/
                         2'b10 :
                           I <= `TV80DELAY ACC;
 
-                        `ifdef TV80_REFRESH                        
+ 			// karabas: LD R,A always (was only with TV80_REFRESH)
                         default :
                           R <= `TV80DELAY ACC;
-                        `else
-                        default : ;
-                        `endif                        
                       endcase
                     end
                 end // if (tstate == 3 )

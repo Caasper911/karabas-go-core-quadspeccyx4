@@ -175,7 +175,7 @@ generate
 			if (rst_n[g] && settle[g] == 0 && slot == ((g + 1) & 7)) begin
 				bad = g_ref[g].ref.ACC !== oct.core.ACC_m[g] || g_ref[g].ref.F !== oct.core.F_m[g] ||
 					g_ref[g].ref.PC !== oct.core.PC_m[g] || g_ref[g].ref.SP !== oct.core.SP_m[g] ||
-					g_ref[g].ref.I !== oct.core.I_m[g];
+					g_ref[g].ref.I !== oct.core.I_m[g] || g_ref[g].ref.R !== oct.core.R_m[g];
 				for (r = 0; r < 8; r = r + 1)
 					if (g_ref[g].ref.i_reg.RegsH[r] !== oct.core.i_reg.RegsH[g*8 + r] ||
 						g_ref[g].ref.i_reg.RegsL[r] !== oct.core.i_reg.RegsL[g*8 + r])
