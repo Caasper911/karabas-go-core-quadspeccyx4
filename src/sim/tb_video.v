@@ -10,7 +10,10 @@
  random, one clock of two). Every visible pixel of VGA is compared with the picture computed from the memory; the
  lines, rows and the frame period are checked (the frame of Pentagon: 1505280 pclk), after the first lock.
 
- Defines: MODE (1: 1280 x 800, 0: 720 x 576), STRIPES, SCR7, FRAMES (default 3), BUSY. Prints "tb_video: <n> errors".
+ WALL=1 (mode 1): the wall instead (wall_fetch.v): eight machines (two cell rows), machine m with the screen page
+ 7 when m[0] ^ m[2] and the border colour 3 m + 1; every pixel of the grid against the memory, SEL the selected cell.
+
+ Defines: MODE (1: 1280 x 800, 0: 720 x 576), STRIPES, SCR7, FRAMES (default 3), BUSY, WALL, SEL. Prints "tb_video: <n> errors".
 */
 
 `ifndef MODE
@@ -27,6 +30,12 @@
 `endif
 `ifndef BUSY
 `define BUSY 1
+`endif
+`ifndef WALL
+`define WALL 0
+`endif
+`ifndef SEL
+`define SEL 5
 `endif
 
 module tb_video;
@@ -70,8 +79,10 @@ always @(posedge clk_bus) begin
 	c_addr <= $random(seed);
 end
 
-wire v_req, v_ack;
-wire [20:0] v_addr;
+wire v_req, v_ack, s_req, w_req;
+wire [20:0] v_addr, s_addr, w_addr;
+assign v_req = (`WALL != 0) ? w_req : s_req;
+assign v_addr = (`WALL != 0) ? w_addr : s_addr;
 wire [15:0] q;
 wire [20:0] MA;
 wire [15:0] MD;
@@ -89,14 +100,37 @@ wire [3:0] pix;
 zx_scr #(.BASE(2'd0)) scr (
 	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .flash(frame[4]),
 	.m(M), .scr7(`SCR7 != 0), .border(BORDER), .diag_en(1'b0), .diag(96'd0),
-	.v_req(v_req), .v_addr(v_addr), .v_ack(v_ack), .q(q),
+	.v_req(s_req), .v_addr(s_addr), .v_ack(v_ack & (`WALL == 0)), .q(q),
 	.pix(pix)
+);
+
+// the wall: the border and the screen page of machine v_m as zx_oct gives them
+wire [3:0] w_m;
+wire wb_we;
+wire [6:0] wb_addr;
+wire [31:0] wb_data;
+wire [23:0] brd;
+function [2:0] m_brd;
+	input [3:0] m;
+	m_brd = 3 * m + 1;
+endfunction
+function m_scr7;
+	input [3:0] m;
+	m_scr7 = m[0] ^ m[2];
+endfunction
+wall_fetch #(.ROWS(2)) wall (
+	.clk(clk_bus), .en(`WALL != 0), .ce7(ce7), .hc(hc), .vc(vc),
+	.v_m(w_m), .v_border(m_brd(w_m)), .v_scr7(m_scr7(w_m)),
+	.v_req(w_req), .v_addr(w_addr), .v_ack(v_ack & (`WALL != 0)), .q(q),
+	.wb_we(wb_we), .wb_addr(wb_addr), .wb_data(wb_data), .brd(brd)
 );
 
 wire [7:0] r, g, b;
 wire hs, vs, de, hs_neg, vs_neg;
 vga_out vga (
 	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .pix(pix), .mode_i(`MODE != 0), .stripes_i(`STRIPES != 0),
+	.wall_i(`WALL != 0), .sel_i(`SEL), .flash_i(frame[4]),
+	.wb_we(wb_we), .wb_addr(wb_addr), .wb_data(wb_data), .brd_i(brd),
 	.pclk(pclk), .r(r), .g(g), .b(b), .hs(hs), .vs(vs), .de(de), .hs_neg(hs_neg), .vs_neg(vs_neg)
 );
 
@@ -143,16 +177,45 @@ function [23:0] rgb;
 	end
 endfunction
 
+// the wall: the colour of paper pixel px, line pr of machine m
+function [3:0] wall_pix;
+	input [3:0] m;
+	input [7:0] pr;
+	input [7:0] px;
+	reg [15:0] wb, wa;
+	reg [7:0] bm, at;
+	begin
+		wb = model.mem[{2'b00, m[2:0], m_scr7(m) ? 3'd7 : 3'd5, 1'b0, pr[7:6], pr[2:0], pr[5:3], px[7:4]}];
+		wa = model.mem[{2'b00, m[2:0], m_scr7(m) ? 3'd7 : 3'd5, 1'b0, 3'b110, pr[7:3], px[7:4]}];
+		bm = px[3] ? wb[15:8] : wb[7:0];
+		at = px[3] ? wa[15:8] : wa[7:0];
+		wall_pix = bm[3'd7 - px[2:0]] ? {at[6], at[2:0]} : {at[6], at[5:3]};
+	end
+endfunction
+
 // the expected colour of visible pixel x, y
 function [23:0] expect_rgb;
 	input integer x;
 	input integer y;
-	integer py, sx;
+	integer py, sx, gx, gy, cc, cx, cr, lc;
 	reg [8:0] sl, h;
 	begin
-		if (`MODE != 0) begin
+		if (`WALL != 0 && x >= 124 && x < 1156 && y >= 12 && y < 788) begin
+			gx = x - 124;
+			gy = y - 12;
+			cc = gx / 258;
+			cx = gx % 258;
+			cr = gy / 194;
+			lc = gy % 194;
+			if (cr >= 2)
+				expect_rgb = 24'h303030;
+			else if (cx == 0 || cx == 257 || lc == 0 || lc == 193)
+				expect_rgb = rgb({1'b0, m_brd(cr * 4 + cc)});
+			else
+				expect_rgb = rgb(wall_pix(cr * 4 + cc, lc - 1, cx - 1));
+		end else if (`MODE != 0) begin
 			py = (848 + y) % 960;
-			if (x >= 112 && x < 1168 && (py >= 849 || py < 687)) begin
+			if (`WALL == 0 && x >= 112 && x < 1168 && (py >= 849 || py < 687)) begin
 				sl = py / 3;
 				sx = (x - 112) / 3;
 				h = (sx < 48) ? sx + 400 : sx - 48;

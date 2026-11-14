@@ -23,11 +23,20 @@
  pclk are set to row 0 when the Spectrum is at line 2, pixel 0 (a toggle through three registers; set again only
  when they are more than 7 clocks off, so the lock does not jitter by the clock of the synchroniser).
 
+ The wall (mode 1 and wall_i): instead of the full screen a grid of 4 x 4 cells of 258 x 194 at x 124, y 12: the
+ paper of machine 4 cr + c at 1:1 with a border of 1 pixel in its border colour; cell rows from ROWS on are grey
+ (not built); the border of the selected cell blinks white with flash_i. The rows come from wall_fetch.v: a row buffer
+ of 2 x 4 x 16 entries of {attribute word, bitmap word} of a pair of characters (written on clk_bus, read on pclk),
+ entry {py[0], c, pair}, and the border colours brd_i[py[0]*12 + c*3 +: 3]; the cell row and the line in the cell
+ count with py (py 0 is y 112: cell row 0, line 100).
+
  Out: rgb, hs / vs / de high active (the OSD overlay takes them so), hs_neg / vs_neg the polarity of the pins; 2 clocks
  of latency after the counters.
 */
 
-module vga_out (
+module vga_out #(
+	parameter ROWS = 2                  // the cell rows of machines in the wall
+) (
 	// clk_bus side
 	input wire clk,
 	input wire ce7,
@@ -36,6 +45,13 @@ module vga_out (
 	input wire [3:0] pix,
 	input wire mode_i,                  // 1: 1280 x 800
 	input wire stripes_i,
+	input wire wall_i,                  // the wall (mode 1 only)
+	input wire [3:0] sel_i,             // the selected machine
+	input wire flash_i,                 // frame[4]: the flash of attributes, the blink of the selected cell
+	input wire wb_we,                   // the row buffer of the wall (wall_fetch.v)
+	input wire [6:0] wb_addr,
+	input wire [31:0] wb_data,
+	input wire [23:0] brd_i,
 
 	// pclk side
 	input wire pclk,
@@ -84,12 +100,17 @@ kg_sdpram #(.DW(4), .AW(11)) linebuf (
 // pclk: the raster
 
 reg [2:0] fe_s = 3'd0;
-reg [1:0] mode_s = 2'd0, str_s = 2'd0;
+reg [1:0] mode_s = 2'd0, str_s = 2'd0, wall_s = 2'd0, fl_s = 2'd0;
+reg [3:0] sel_s = 4'd0;
 always @(posedge pclk) begin
 	fe_s <= {fe_s[1:0], fe_t};
 	mode_s <= {mode_s[0], mode_i};
 	str_s <= {str_s[0], stripes_i};
+	wall_s <= {wall_s[0], wall_i};
+	fl_s <= {fl_s[0], flash_i};
+	sel_s <= sel_i;
 end
+wire wall = wall_s[1] && mode;
 wire frame_ev = fe_s[2] ^ fe_s[1];
 wire mode = mode_s[1];
 
@@ -106,6 +127,14 @@ reg [8:0] sl = 9'd0;                           // the Spectrum line shown: py / 
 reg [1:0] sub = 2'd0;
 reg [8:0] sx = 9'd0;                           // the Spectrum pixel from the left of the picture
 reg [4:0] acc = 5'd0;
+reg [9:0] gy = 10'd112;                        // the wall: visible y of this row, its cell row and line in the cell
+reg [2:0] gcr = 3'd0;
+reg [7:0] glc = 8'd100;
+reg [1:0] gcc = 2'd0;                          // the cell column and the pixel in the cell of this clock
+reg [8:0] gcx = 9'd0;
+wire [8:0] gpx = gcx - 1'd1;                    // the paper pixel 0..255 (gcx 1..256)
+reg [6:0] rb_ra = 7'd0;
+wire [31:0] rb_q;
 
 wire [11:0] x_start = (X0 == 12'd0) ? H - 1'd1 : X0 - 1'd1;
 wire [8:0] sx_hc = (sx < LB) ? sx + 9'd448 - LB : sx - LB;
@@ -116,8 +145,20 @@ always @(posedge pclk) begin
 		py <= 10'd0;
 		sl <= 9'd0;
 		sub <= 2'd0;
+		gy <= 10'd112;
+		gcr <= 3'd0;
+		glc <= 8'd100;
 	end else if (hx == H - 1'd1) begin
 		hx <= 12'd0;
+		gy <= (gy == 10'd959) ? 10'd0 : gy + 1'd1;
+		if (gy == 10'd11) begin
+			gcr <= 3'd0;
+			glc <= 8'd0;
+		end else if (glc == 8'd193) begin
+			glc <= 8'd0;
+			gcr <= gcr + 1'd1;
+		end else
+			glc <= glc + 1'd1;
 		if (sub == LPL - 1'd1) begin
 			sub <= 2'd0;
 			sl <= (sl == 9'd319) ? 9'd0 : sl + 1'd1;
@@ -139,7 +180,29 @@ always @(posedge pclk) begin
 		acc <= acc + NUM;
 
 	lb_ra <= {sl[1:0], sx_hc};
+
+	if (hx == 12'd123) begin
+		gcc <= 2'd0;
+		gcx <= 9'd0;
+	end else if (gcx == 9'd257) begin
+		gcc <= gcc + 1'd1;
+		gcx <= 9'd0;
+	end else
+		gcx <= gcx + 1'd1;
+	rb_ra <= {py[0], gcc, gpx[7:4]};
 end
+
+// the row buffer of the wall
+kg_sdpram #(.DW(32), .AW(7)) rowbuf (
+	.clka(clk),
+	.wea(wb_we),
+	.addra(wb_addr),
+	.dina(wb_data),
+	.clkb(pclk),
+	.enb(1'b1),
+	.addrb(rb_ra),
+	.doutb(rb_q)
+);
 
 // the windows of this clock (hx, py): visible, picture, syncs, frame
 wire vis_x = mode ? (hx < 12'd1280) : (hx < 12'd1932);
@@ -149,10 +212,19 @@ wire pic_y = mode ? (py >= 10'd849 || py < 10'd687) : vis_y;
 wire hs_x = mode ? (hx >= 12'd1344 && hx < 12'd1472) : (hx >= 12'd1974 && hx < 12'd2142);
 wire vs_y = mode ? (py >= 10'd691 && py < 10'd697) : (py >= 10'd484 && py < 10'd488);
 wire edge_px = hx == 12'd0 || hx == 12'd1279 || py == 10'd848 || py == 10'd687;
+wire g_in = wall && hx >= 12'd124 && hx < 12'd1156 && gy >= 10'd12 && gy < 10'd788;
+wire g_brdx = gcx == 9'd0 || gcx == 9'd257 || glc == 8'd0 || glc == 8'd193;
 
 // stage a (the address of the line buffer is out), stage b (its colour)
 reg vis_a = 1'b0, pic_a = 1'b0, hs_a = 1'b0, vs_a = 1'b0, edge_a = 1'b0, str_a = 1'b0;
 reg vis_b = 1'b0, pic_b = 1'b0, hs_b = 1'b0, vs_b = 1'b0, edge_b = 1'b0, str_b = 1'b0;
+reg g_a = 1'b0, gb_a = 1'b0, gabs_a = 1'b0, gsel_a = 1'b0, gh_a = 1'b0;   // the wall: in a cell, its border, absent,
+reg g_b = 1'b0, gb_b = 1'b0, gabs_b = 1'b0, gsel_b = 1'b0, gh_b = 1'b0;   // selected, the high byte of the word
+reg [2:0] gbit_a = 3'd0, gbit_b = 3'd0, gbc_a = 3'd0, gbc_b = 3'd0;      // the bit, the border colour
+wire [7:0] g_bm = gh_b ? rb_q[15:8] : rb_q[7:0];
+wire [7:0] g_at = gh_b ? rb_q[31:24] : rb_q[23:16];
+wire g_ink = g_bm[3'd7 - gbit_b] ^ (g_at[7] & fl_s[1]);
+wire [3:0] g_pix = g_ink ? {g_at[6], g_at[2:0]} : {g_at[6], g_at[5:3]};
 
 always @(posedge pclk) begin
 	vis_a <= vis_x && vis_y;
@@ -162,6 +234,14 @@ always @(posedge pclk) begin
 	edge_a <= mode && edge_px;
 	str_a <= mode && str_s[1] && hx[0];
 	{vis_b, pic_b, hs_b, vs_b, edge_b, str_b} <= {vis_a, pic_a, hs_a, vs_a, edge_a, str_a};
+	g_a <= g_in;
+	gb_a <= g_brdx;
+	gabs_a <= gcr >= ROWS;
+	gsel_a <= {gcr[1:0], gcc} == sel_s && fl_s[1];
+	gh_a <= gpx[3];
+	gbit_a <= gpx[2:0];
+	gbc_a <= brd_i[{py[0], gcc} * 3 +: 3];
+	{g_b, gb_b, gabs_b, gsel_b, gh_b, gbit_b, gbc_b} <= {g_a, gb_a, gabs_a, gsel_a, gh_a, gbit_a, gbc_a};
 
 	hs <= hs_b;
 	vs <= vs_b;
@@ -170,7 +250,21 @@ always @(posedge pclk) begin
 	vs_neg <= ~mode;
 	if (!vis_b) begin
 		r <= 8'd0; g <= 8'd0; b <= 8'd0;
-	end else if (pic_b) begin
+	end else if (g_b) begin
+		if (gabs_b) begin
+			r <= 8'h30; g <= 8'h30; b <= 8'h30;
+		end else if (gb_b && gsel_b) begin
+			r <= 8'hFF; g <= 8'hFF; b <= 8'hFF;
+		end else if (gb_b) begin
+			r <= gbc_b[1] ? 8'hCA : 8'd0;
+			g <= gbc_b[2] ? 8'hCA : 8'd0;
+			b <= gbc_b[0] ? 8'hCA : 8'd0;
+		end else begin
+			r <= g_pix[1] ? (g_pix[3] ? 8'hFF : 8'hCA) : 8'd0;
+			g <= g_pix[2] ? (g_pix[3] ? 8'hFF : 8'hCA) : 8'd0;
+			b <= g_pix[0] ? (g_pix[3] ? 8'hFF : 8'hCA) : 8'd0;
+		end
+	end else if (pic_b && !wall) begin
 		r <= lb_q[1] ? (lb_q[3] ? 8'hFF : 8'hCA) : 8'd0;
 		g <= lb_q[2] ? (lb_q[3] ? 8'hFF : 8'hCA) : 8'd0;
 		b <= lb_q[0] ? (lb_q[3] ? 8'hFF : 8'hCA) : 8'd0;

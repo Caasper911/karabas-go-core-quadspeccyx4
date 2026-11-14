@@ -32,6 +32,9 @@ Milestones 1 (the CPU) and 2 (eight machines on SRAM, in simulation) done; miles
   from the SRAM, pairs of characters through the video port), `rtl/video/vga_out.v` (pclk = 21/8 clk_bus from a second
   PLL, 73.6 MHz, locked to the Pentagon frame, two rasters), `rtl/hid/zx_kbd.v` / `rtl/sound/ay_psg.v` from QuadSpeccy
   (zx_kbd: sel 4 bits, Win+1..8, arrows on 4 columns x ROWS).
+- Milestone 4 (the wall): `rtl/video/wall_fetch.v` reads before every VGA row the Spectrum line of the 4 machines of
+  the cell row (128 words, pipelined on the video port) into the row buffer of `vga_out` (RAMB8, clk_bus / pclk);
+  Win+` wall / full screen; 1280 x 800 is the default video now.
 
 - `src/rtl/tv80`: tv80 (as QuadSpeccy, from karabas_go_v6z80p with its fixes, marked `karabas:`). `tv80_oct.v`: one
   tv80 for eight CPUs, ONE clock per CPU (slot k of 8 = cen of CPU k; a T-state is 8 clocks of clk_bus 28 MHz). The
@@ -85,7 +88,7 @@ Milestones 1 (the CPU) and 2 (eight machines on SRAM, in simulation) done; miles
   constraints of TS-Conf): 1679 LUT, 563 slices, 16 RAMB16, clk_bus 21.3 ns.
 - `src/sim/run_video.sh [frames]`: zx_scr + sram_ctrl + the SRAM model + vga_out, every visible VGA pixel against the
   memory, the CPU port of the SRAM as busy as eight machines make it; `MODE=0` 720 x 576, `STRIPES=1`, `SCR7=1`,
-  `BUSY=0`. About 30 s per frame.
+  `BUSY=0`, `WALL=1` the wall (wall_fetch, 8 machines with their own page and border, `SEL`). About 30 s per frame.
 - `src/sim/run_ps.sh [clocks]`: XST + netgen of zx_oct, tb_ps.v boots the ROM 128 in the netlist and the RTL, all
   outputs every clock (`TRACE=n` the first PC changes; `XST_SED` edits the XST options). 1.5 M clocks ~10 min.
 - `src/sim/run_core.sh [clocks]`: the whole core (PLLs, kg_mcu2 idle, busy forced off) on the SRAM model, prints

@@ -19,7 +19,7 @@
     ],
     "boards": {
         "go": {
-            "build": "26111402",
+            "build": "26111403",
             "bitstream": "karabas_go.bin"
         }
     },
@@ -32,7 +32,7 @@
                 "720x576",
                 "1280x800"
             ],
-            "default": 0,
+            "default": 1,
             "hotkey": "Menu+V"
         },
         {

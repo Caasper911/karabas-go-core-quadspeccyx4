@@ -4,20 +4,21 @@
 /*
  speccywall.v
 
- SpeccyWall, the first core for the board (docs/PLAN.md, milestone 3): eight Pentagon 128 on one engine
- (zx_oct) in the SRAM (sram_ctrl), the selected machine full screen (zx_scr: its screen from the SRAM through the video
- port; vga_out on the pixel clock, 720 x 576 or 1280 x 800), its keyboard, beeper and the one AY. The wall (4 x 4 grid)
- is milestone 4. Everything of the core but the board: karabas_go_top.v puts video, sound and the FT812 / MCU lines on
- its pins.
+ SpeccyWall (docs/PLAN.md): eight Pentagon 128 on one engine (zx_oct) in the SRAM (sram_ctrl), on the screen the wall
+ (1280 x 800: 4 x 4 cells, the paper of each machine at 1:1, wall_fetch reads the rows through the video port of
+ sram_ctrl) or the selected machine full screen (zx_scr: its screen through the video port; 1280 x 800 at scale 3 or
+ 720 x 576), vga_out on the pixel clock; the keyboard, beeper and the one AY of the selected machine. Everything of the
+ core but the board: karabas_go_top.v puts video, sound and the FT812 / MCU lines on its pins.
 
  Clocks:
    PLL 1 on CLK_50MHZ (VCO 925 MHz, as QuadSpeccy): clk_sys 84.09 MHz (/11, the write strobe of sram_ctrl), clk_bus
    28.03 MHz (/33: the machines, the MCU link, the line buffer writes), clk_8 7.97 MHz (/116, the FT812 of the Mini).
    PLL 2 on clk_bus: pclk = clk_bus * 21 / 8 = 73.6 MHz (VCO 588.6 MHz): the VGA raster, the OSD overlay, the DAC.
 
- Hotkeys (zx_kbd): Win + 1..8 the machine with the keyboard and the screen, Win + arrows the machine next to it (4
- columns, 2 rows).
- OSD (core.json "osd", the "index" of the items): 0 joystick L, 1 joystick R, 2 video (0 720 x 576, 1 1280 x 800),
+ Hotkeys (zx_kbd): Win + 1..8 the machine with the keyboard and the sound, Win + arrows the machine next to it (4
+ columns, 2 rows), Win + ` the wall / the selected machine full screen (the wall after the start; 720 x 576 is always
+ full screen).
+ OSD (core.json "osd", the "index" of the items): 0 joystick L, 1 joystick R, 2 video (0 720 x 576, 1 1280 x 800: the default),
  3 reset of the selected machine (F12), 4 reset of all (Menu+F12), 5 stripes in the side margins of 1280 x 800,
  6 NMI of the selected machine (F11), 7 AY mix (0 ABC, 1 ACB), 8 the diagnostics squares (bring-up, below).
 
@@ -141,7 +142,7 @@ wire [9*8-1:0] softsw;
 kg_mcu2 #(
 	.CAPS(16'h0010),             // bit 4: LD_READY (always ready: the ROM is written a byte a clock)
 	.SW_N(9),
-	.SW_INIT(72'h00_00_00_00_00_00_00_01_00),
+	.SW_INIT(72'h00_00_00_00_00_00_01_01_00),
 	.CS_FILTER(3),
 	.ENABLE_OSD(1),
 	.ENABLE_IMG(0),
@@ -215,6 +216,7 @@ wire sw_diag = softsw[64];
 wire [39:0] kbd_keys;
 wire [7:0] kbd_kempston;
 wire [3:0] kbd_sel;
+wire kbd_full_tgl;
 
 zx_kbd #(.ROWS(2)) kbd(
 	.clk(clk_bus),
@@ -233,10 +235,17 @@ zx_kbd #(.ROWS(2)) kbd(
 	.keys(kbd_keys),
 	.kempston(kbd_kempston),
 	.sel(kbd_sel),
-	.full_tgl()
+	.full_tgl(kbd_full_tgl)
 );
 
 wire [2:0] sel = kbd_sel[2:0];
+
+// the wall or the selected machine full screen (Win + `); 720 x 576 has no wall
+reg full = 1'b0;
+always @(posedge clk_bus)
+	if (kbd_full_tgl)
+		full <= ~full;
+wire show_full = full | ~sw_video;
 
 // ---------------------------------------------------------------------------------------------
 // resets: the loader, the start, Reset All (OSD, Menu+F12, the button 1) all machines; Reset (OSD, F12, button 0)
@@ -297,13 +306,18 @@ zx_oct #(.BASE(2'd0)) eng (
 	.sel(sel), .keys(kbd_keys), .tape_in(tape_in), .kempston(kbd_kempston),
 	.m_req(m_req), .m_we(m_we), .m_addr(m_addr), .m_din(m_din), .m_q(m_q),
 	.rom_we(rom_we), .rom_wa(ld_addr_mcu[14:0]), .rom_wd(ld_data_mcu),
-	.beeper(m_beeper), .mic(m_mic), .v_m(sel), .v_border(v_border), .v_scr7(v_scr7),
+	.beeper(m_beeper), .mic(m_mic), .v_m(v_m), .v_border(v_border), .v_scr7(v_scr7),
 	.ay_we(ay_we), .ay_wa(ay_wa), .ay_wd(ay_wd), .ay_ra(ay_ra), .ay_rd(ay_rd), .late(m_late),
 	.dbg_pc(dbg_pc), .dbg_7ffd(dbg_7ffd), .dbg_ev(dbg_ev)
 );
 
-wire v_req, v_ack;
-wire [20:0] v_addr;
+wire v_req, v_ack, s_req, w_req;
+wire [20:0] v_addr, s_addr, w_addr;
+wire [3:0] w_m;
+// the video port and the context read port of zx_oct: the full screen reader or the wall reader
+assign v_req = show_full ? s_req : w_req;
+assign v_addr = show_full ? s_addr : w_addr;
+wire [2:0] v_m = show_full ? sel : w_m[2:0];
 
 // the self test of the SRAM (bring-up): after the start of the core and at Reset All (OSD, Menu+F12, button 1), the
 // machines in reset meanwhile
@@ -397,16 +411,30 @@ wire [3:0] pix;
 zx_scr #(.BASE(2'd0)) scr(
 	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .flash(frame[4]),
 	.m(sel), .scr7(v_scr7), .border(v_border), .diag_en(sw_diag), .diag(diag),
-	.v_req(v_req), .v_addr(v_addr), .v_ack(v_ack), .q(m_q),
+	.v_req(s_req), .v_addr(s_addr), .v_ack(v_ack & show_full), .q(m_q),
 	.pix(pix)
+);
+
+wire wb_we;
+wire [6:0] wb_addr;
+wire [31:0] wb_data;
+wire [23:0] w_brd;
+
+wall_fetch #(.ROWS(2)) wall(
+	.clk(clk_bus), .en(~show_full), .ce7(ce7), .hc(hc), .vc(vc),
+	.v_m(w_m), .v_border(v_border), .v_scr7(v_scr7),
+	.v_req(w_req), .v_addr(w_addr), .v_ack(v_ack & ~show_full), .q(m_q),
+	.wb_we(wb_we), .wb_addr(wb_addr), .wb_data(wb_data), .brd(w_brd)
 );
 
 wire [7:0] vo_r, vo_g, vo_b;
 wire vo_hs, vo_vs, vo_de, hs_neg, vs_neg;
 
-vga_out vga(
+vga_out #(.ROWS(2)) vga(
 	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .pix(pix),
 	.mode_i(sw_video), .stripes_i(sw_stripes),
+	.wall_i(~show_full), .sel_i({1'b0, sel}), .flash_i(frame[4]),
+	.wb_we(wb_we), .wb_addr(wb_addr), .wb_data(wb_data), .brd_i(w_brd),
 	.pclk(pclk),
 	.r(vo_r), .g(vo_g), .b(vo_b), .hs(vo_hs), .vs(vo_vs), .de(vo_de), .hs_neg(hs_neg), .vs_neg(vs_neg)
 );
