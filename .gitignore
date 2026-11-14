@@ -5,3 +5,6 @@ src/sim/work/
 # timing test of tv80_oct (src/test/run_timing.sh)
 src/test/work/
 src/test/cpu8.prj
+src/test/_xmsgs/
+src/test/*.lso
+src/test/xlnx_auto_0_xdb/
