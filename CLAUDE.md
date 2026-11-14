@@ -20,8 +20,13 @@ same change as the code they describe.
 ## State
 
 Milestones 1 (the CPU) and 2 (eight machines on SRAM, in simulation) done; milestone 3: the first core for the Go
-(`src/speccywall.kg`: eight machines, the selected one full screen, 720 x 576 or 1280 x 800), built, not yet tried on
-the board (the user tests on a Go).
+(`src/speccywall.kg`: eight machines, the selected one full screen, 720 x 576 or 1280 x 800) works on the Go
+(2026-11-14; the user tests on the board).
+
+- XST 14.7 mis-synthesized a context array written in both branches of `if (reset) ... else ...` (a RAM16X1D that
+  wrote only zeros; no machine ran on the board). Write each context array with one assignment per clock (next
+  values `n_*` combinational), and run `src/sim/run_ps.sh` (the XST netlist of zx_oct against the RTL) after changing
+  context logic: the RTL tests cannot see this.
 
 - `src/rtl/speccywall.v` (the core) and `karabas_go_top.v`; `rtl/video/zx_scr.v` (the screen of the selected machine
   from the SRAM, pairs of characters through the video port), `rtl/video/vga_out.v` (pclk = 21/8 clk_bus from a second
@@ -81,4 +86,8 @@ the board (the user tests on a Go).
 - `src/sim/run_video.sh [frames]`: zx_scr + sram_ctrl + the SRAM model + vga_out, every visible VGA pixel against the
   memory, the CPU port of the SRAM as busy as eight machines make it; `MODE=0` 720 x 576, `STRIPES=1`, `SCR7=1`,
   `BUSY=0`. About 30 s per frame.
+- `src/sim/run_ps.sh [clocks]`: XST + netgen of zx_oct, tb_ps.v boots the ROM 128 in the netlist and the RTL, all
+  outputs every clock (`TRACE=n` the first PC changes; `XST_SED` edits the XST options). 1.5 M clocks ~10 min.
+- `src/sim/run_core.sh [clocks]`: the whole core (PLLs, kg_mcu2 idle, busy forced off) on the SRAM model, prints
+  the diagnostics vector every 100 000 clocks; slow (~100 k clocks a minute or two).
 - ISim 14.7 has no `$writememh` / `$clog2`.

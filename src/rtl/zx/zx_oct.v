@@ -71,7 +71,13 @@ module zx_oct #(
 	output wire [7:0] ay_rd,
 
 	// debug, sticky until a reset of the machine: the data of a read was not there when the CPU took it
-	output reg [7:0] late = 8'd0
+	output reg [7:0] late = 8'd0,
+	// debug of machine sel (bring-up): the address of its last opcode fetch, its #7FFD, sticky (cleared by its reset):
+	// bit 0 a write of #FE, 1 a write of #7FFD (with the lock off), 2 a memory write, 3 an I/O write, 4 an opcode
+	// fetch from RAM, 5 an interrupt acknowledge
+	output reg [15:0] dbg_pc = 16'd0,
+	output wire [5:0] dbg_7ffd,
+	output reg [5:0] dbg_ev = 6'd0
 );
 
 wire [2:0] th = slot;             // the CPU of this clock
@@ -108,6 +114,7 @@ end
 assign v_border = c_border[v_m];
 assign v_scr7 = c_7ffd[v_m][3];
 assign ay_rd = ay_ram[{sel, ay_ra}];
+assign dbg_7ffd = c_7ffd[sel];
 
 // ---------------------------------------------------------------------------------------------
 // CPU
@@ -214,6 +221,83 @@ always @(posedge clk) begin
 	rom_q1 <= rom[rom_ra];
 end
 
+// the next contexts of machine b (written in its bus slot, one write of each a clock)
+reg [5:0] n_7ffd;
+reg n_wrdone, n_rd, n_t2, n_src, n_iss, n_ayrv, n_ay_we;
+reg [7:0] n_pdat, n_ay_d;
+reg [2:0] n_border;
+reg [3:0] n_ayreg, n_ayclr;
+reg [6:0] n_ay_a;
+always @* begin
+	n_7ffd = c_7ffd[b];
+	n_wrdone = c_wrdone[b];
+	n_rd = c_rd[b];
+	n_t2 = t2;
+	n_src = 1'b0;
+	n_pdat = c_pdat[b];
+	n_iss = c_iss[b];
+	n_border = c_border[b];
+	n_ayreg = c_ayreg[b];
+	n_ayrv = c_ayrv[b];
+	n_ayclr = c_ayclr[b];
+	n_ay_we = 1'b0;
+	n_ay_a = {b, c_ayreg[b]};
+	n_ay_d = p_dout & ay_mask(c_ayreg[b]);
+	if (reset[b]) begin
+		n_7ffd = 6'd0;
+		n_wrdone = 1'b0;
+		n_rd = 1'b0;
+		n_t2 = 1'b0;
+		n_src = c_src[b];
+		n_ayreg = 4'd0;
+		n_ayrv = 1'b1;
+		// the AY registers: one per T-state while the reset lasts (the reset of the core and of the OSD are
+		// milliseconds; src/sim/tb_wall.v holds a reset 20 T-states). #FE is kept over a reset, as the ULA: the
+		// border stays until the ROM sets it
+		n_ayclr = c_ayclr[b] + 1'd1;
+		n_ay_we = 1'b1;
+		n_ay_a = {b, c_ayclr[b]};
+		n_ay_d = 8'd0;
+	end else begin
+		// the data the CPU will take: a port, FF in the acknowledge M1, else the memory
+		if (io_rd) begin
+			n_src = 1'b1;
+			n_pdat = port_q;
+		end else if (m1 && !p_intcycle_n) begin
+			n_src = 1'b1;
+			n_pdat = 8'hFF;
+		end
+		// T1: the read
+		if (t1) begin
+			n_wrdone = 1'b0;
+			n_rd = mem_rd;
+			if (mem_rd)
+				n_iss = ~c_iss[b];
+		end
+		if (t3)
+			n_rd = 1'b0;
+		// T2: the write, the port writes
+		if (t2 && !c_wrdone[b]) begin
+			if (mem_wr)
+				n_wrdone = 1'b1;
+			if (io_wr) begin
+				n_wrdone = 1'b1;
+				if (!p_A[0])
+					n_border = p_dout[2:0];
+				if (!p_A[15] && !p_A[1] && !b7ffd[5])
+					n_7ffd = p_dout[5:0];
+				if (ay_port && p_A[14]) begin
+					n_ayreg = p_dout[3:0];
+					n_ayrv = (p_dout[7:4] == 4'd0);
+				end
+				// AY: a write of #BFFD
+				if (ay_port && !p_A[14] && c_ayrv[b])
+					n_ay_we = 1'b1;
+			end
+		end
+	end
+end
+
 // the returns: the machine, ROM or SRAM, the byte of the word, three clocks after the bus slot
 reg [2:0] r_m1 = 3'd0, r_m2 = 3'd0, r_m3 = 3'd0;
 reg r_v1 = 1'b0, r_v2 = 1'b0, r_v3 = 1'b0;
@@ -233,88 +317,68 @@ always @(posedge clk) begin
 	{r_v3, r_m3, r_rom3, r_hi3} <= {r_v2, r_m2, r_rom2, r_hi2};
 	rom_q2 <= rom_q1;
 
-	if (reset[b]) begin
-		c_7ffd[b] <= 6'd0;
-		c_wrdone[b] <= 1'b0;
-		c_rd[b] <= 1'b0;
-		c_t2[b] <= 1'b0;
-		c_ayreg[b] <= 4'd0;
-		c_ayrv[b] <= 1'b1;
-		// the AY registers: one per T-state while the reset lasts (the reset of the core and of the OSD are
-		// milliseconds; src/sim/tb_wall.v holds a reset 20 T-states)
-		c_ayclr[b] <= c_ayclr[b] + 1'd1;
-		ay_ram[{b, c_ayclr[b]}] <= 8'd0;
-		if (is_sel) begin
-			ay_we <= 1'b1;
-			ay_wa <= c_ayclr[b];
-			ay_wd <= 8'd0;
-		end
-		// #FE is kept over a reset, as the ULA: the border stays until the ROM sets it
-	end else begin
-		c_t2[b] <= t2;
+	// the contexts of machine b: one write of each a clock (n_*, below). XST 14.7 got a context written in both
+	// branches of "if (reset) ... else ..." wrong: c_t2 became a RAM written only when its data was 0 (found by the
+	// simulation of the netlist, src/sim/run_ps.sh: on the board no machine ran)
+	c_7ffd[b] <= n_7ffd;
+	c_wrdone[b] <= n_wrdone;
+	c_rd[b] <= n_rd;
+	c_t2[b] <= n_t2;
+	c_src[b] <= n_src;
+	c_pdat[b] <= n_pdat;
+	c_iss[b] <= n_iss;
+	c_border[b] <= n_border;
+	c_ayreg[b] <= n_ayreg;
+	c_ayrv[b] <= n_ayrv;
+	c_ayclr[b] <= n_ayclr;
+	if (n_ay_we)
+		ay_ram[n_ay_a] <= n_ay_d;
+	if (n_ay_we && is_sel) begin
+		ay_we <= 1'b1;
+		ay_wa <= n_ay_a[3:0];
+		ay_wd <= n_ay_d;
+	end
 
-		// the data the CPU will take: a port, FF in the acknowledge M1, else the memory
-		if (io_rd) begin
-			c_src[b] <= 1'b1;
-			c_pdat[b] <= port_q;
-		end else if (m1 && !p_intcycle_n) begin
-			c_src[b] <= 1'b1;
-			c_pdat[b] <= 8'hFF;
-		end else
-			c_src[b] <= 1'b0;
+	if (reset[b]) begin
+		if (is_sel)
+			dbg_ev <= 6'd0;
+	end else begin
+		if (is_sel) begin
+			if (m1 && t1 && p_intcycle_n) begin
+				dbg_pc <= p_A;
+				if (!is_rom) dbg_ev[4] <= 1'b1;
+			end
+			if (m1 && t1 && !p_intcycle_n) dbg_ev[5] <= 1'b1;
+			if (t2 && !c_wrdone[b]) begin
+				if (mem_wr) dbg_ev[2] <= 1'b1;
+				if (io_wr) dbg_ev[3] <= 1'b1;
+				if (io_wr && !p_A[0]) dbg_ev[0] <= 1'b1;
+				if (io_wr && !p_A[15] && !p_A[1] && !b7ffd[5]) dbg_ev[1] <= 1'b1;
+			end
+		end
 
 		// T1: the read
-		if (t1) begin
-			c_wrdone[b] <= 1'b0;
-			c_rd[b] <= mem_rd;
-			if (mem_rd) begin
-				c_iss[b] <= ~c_iss[b];
-				r_v1 <= 1'b1;
-				r_rom1 <= is_rom;
-				rom_ra <= {b7ffd[4], p_A[13:0]};
-				if (!is_rom) begin
-					m_req <= 1'b1;
-					m_addr <= ram_addr;
-				end
+		if (t1 && mem_rd) begin
+			r_v1 <= 1'b1;
+			r_rom1 <= is_rom;
+			rom_ra <= {b7ffd[4], p_A[13:0]};
+			if (!is_rom) begin
+				m_req <= 1'b1;
+				m_addr <= ram_addr;
 			end
 		end
-		if (t3)
-			c_rd[b] <= 1'b0;
 
-		// T2: the write, the port writes
+		// T2: the write, #FE
 		if (t2 && !c_wrdone[b]) begin
-			if (mem_wr) begin
-				c_wrdone[b] <= 1'b1;
-				if (!is_rom) begin
-					m_req <= 1'b1;
-					m_we <= 1'b1;
-					m_addr <= ram_addr;
-					m_din <= p_dout;
-				end
+			if (mem_wr && !is_rom) begin
+				m_req <= 1'b1;
+				m_we <= 1'b1;
+				m_addr <= ram_addr;
+				m_din <= p_dout;
 			end
-			if (io_wr) begin
-				c_wrdone[b] <= 1'b1;
-				if (!p_A[0]) begin
-					c_border[b] <= p_dout[2:0];
-					mic[b] <= p_dout[3];
-					beeper[b] <= p_dout[4];
-				end
-				if (!p_A[15] && !p_A[1] && !b7ffd[5])
-					c_7ffd[b] <= p_dout[5:0];
-				if (ay_port && p_A[14]) begin
-					c_ayreg[b] <= p_dout[3:0];
-					c_ayrv[b] <= (p_dout[7:4] == 4'd0);
-				end
-			end
-		end
-
-		// AY: a write of #BFFD
-		if (t2 && !c_wrdone[b] && io_wr && ay_port && !p_A[14] && c_ayrv[b]) begin
-			ay_ram[{b, c_ayreg[b]}] <= p_dout & ay_mask(c_ayreg[b]);
-			if (is_sel) begin
-				ay_we <= 1'b1;
-				ay_wa <= c_ayreg[b];
-				ay_wd <= p_dout & ay_mask(c_ayreg[b]);
+			if (io_wr && !p_A[0]) begin
+				mic[b] <= p_dout[3];
+				beeper[b] <= p_dout[4];
 			end
 		end
 	end

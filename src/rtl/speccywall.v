@@ -19,7 +19,7 @@
  columns, 2 rows).
  OSD (core.json "osd", the "index" of the items): 0 joystick L, 1 joystick R, 2 video (0 720 x 576, 1 1280 x 800),
  3 reset of the selected machine (F12), 4 reset of all (Menu+F12), 5 stripes in the side margins of 1280 x 800,
- 6 NMI of the selected machine (F11), 7 AY mix (0 ABC, 1 ACB).
+ 6 NMI of the selected machine (F11), 7 AY mix (0 ABC, 1 ACB), 8 the diagnostics squares (bring-up, below).
 
  ROM loader: the 32 KB of the shared ROM (128 editor at 0, 48 BASIC at 16384) written straight into the block RAM of
  zx_oct, the machines held in reset meanwhile.
@@ -27,7 +27,9 @@
  MCU: link v2 (kg_mcu2 of modules), MCU_INT on the IO1 line of the board.
 */
 
-module speccywall (
+module speccywall #(
+	parameter MEMTEST_AW = 21           // the words of the SRAM self test (sram_test.v)
+) (
 	input wire CLK_50MHZ,
 
 	output wire clk_bus,
@@ -133,13 +135,13 @@ wire [4:0] osd_px, osd_ph;
 wire [3:0] osd_py;
 wire [5:0] osd_pw;
 
-// the OSD switches: 8 registers of 8 bits, switch n = softsw[n*8 +: 8]; SW_INIT the defaults of core.json
-wire [8*8-1:0] softsw;
+// the OSD switches: 9 registers of 8 bits, switch n = softsw[n*8 +: 8]; SW_INIT the defaults of core.json
+wire [9*8-1:0] softsw;
 
 kg_mcu2 #(
 	.CAPS(16'h0010),             // bit 4: LD_READY (always ready: the ROM is written a byte a clock)
-	.SW_N(8),
-	.SW_INIT(64'h00_00_00_00_00_00_01_00),
+	.SW_N(9),
+	.SW_INIT(72'h00_00_00_00_00_00_00_01_00),
 	.CS_FILTER(3),
 	.ENABLE_OSD(1),
 	.ENABLE_IMG(0),
@@ -205,6 +207,7 @@ wire sw_reset_all = softsw[32];
 wire sw_stripes = softsw[40];
 wire sw_nmi = softsw[48];
 wire sw_acb = softsw[56];
+wire sw_diag = softsw[64];
 
 // ---------------------------------------------------------------------------------------------
 // keyboard
@@ -240,7 +243,8 @@ wire [2:0] sel = kbd_sel[2:0];
 // the selected one. A reset lasts 255 clocks (32 T-states) at least: zx_oct clears the AY copy one register a T-state.
 
 wire ld_hold = (ld_active && ld_kind == 2'd0) | mcu_busy;
-wire rst_all = areset | ld_hold | sw_reset_all | hw_btn[1];
+wire mt_active;
+wire rst_all = areset | ld_hold | sw_reset_all | hw_btn[1] | mt_active;
 wire rst_sel = sw_reset | hw_btn[0];
 reg [7:0] m_reset = 8'hFF;
 reg [7:0] rst_cnt = 8'hFF;
@@ -284,6 +288,8 @@ wire v_scr7;
 wire ay_we;
 wire [3:0] ay_wa, ay_ra;
 wire [7:0] ay_wd, ay_rd;
+wire [15:0] dbg_pc;
+wire [5:0] dbg_7ffd, dbg_ev;
 
 zx_oct #(.BASE(2'd0)) eng (
 	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(m_reset),
@@ -292,18 +298,96 @@ zx_oct #(.BASE(2'd0)) eng (
 	.m_req(m_req), .m_we(m_we), .m_addr(m_addr), .m_din(m_din), .m_q(m_q),
 	.rom_we(rom_we), .rom_wa(ld_addr_mcu[14:0]), .rom_wd(ld_data_mcu),
 	.beeper(m_beeper), .mic(m_mic), .v_m(sel), .v_border(v_border), .v_scr7(v_scr7),
-	.ay_we(ay_we), .ay_wa(ay_wa), .ay_wd(ay_wd), .ay_ra(ay_ra), .ay_rd(ay_rd), .late(m_late)
+	.ay_we(ay_we), .ay_wa(ay_wa), .ay_wd(ay_wd), .ay_ra(ay_ra), .ay_rd(ay_rd), .late(m_late),
+	.dbg_pc(dbg_pc), .dbg_7ffd(dbg_7ffd), .dbg_ev(dbg_ev)
 );
 
 wire v_req, v_ack;
 wire [20:0] v_addr;
 
+// the self test of the SRAM (bring-up): after the start of the core and at Reset All (OSD, Menu+F12, button 1), the
+// machines in reset meanwhile
+wire mt_done, mt_ok, mt_req, mt_we;
+wire [15:0] mt_bad;
+wire [20:0] mt_first;
+wire [21:0] mt_addr;
+wire [7:0] mt_din;
+reg areset_d = 1'b1, rall_d = 1'b0;
+always @(posedge clk_bus) begin
+	areset_d <= areset;
+	rall_d <= sw_reset_all | hw_btn[1];
+end
+wire mt_start = (areset_d & ~areset) | ((sw_reset_all | hw_btn[1]) & ~rall_d);
+
+sram_test #(.AW(MEMTEST_AW)) mtest(
+	.clk(clk_bus), .start(mt_start),
+	.active(mt_active), .done(mt_done), .ok(mt_ok), .bad(mt_bad), .first(mt_first),
+	.c_req(mt_req), .c_we(mt_we), .c_addr(mt_addr), .c_din(mt_din), .q(m_q)
+);
+
 sram_ctrl sram(
 	.clk_bus(clk_bus), .clk_sys(clk_sys),
-	.c_req(m_req), .c_we(m_we), .c_addr(m_addr), .c_din(m_din),
+	.c_req(mt_active ? mt_req : m_req), .c_we(mt_active ? mt_we : m_we), .c_addr(mt_active ? mt_addr : m_addr),
+	.c_din(mt_active ? mt_din : m_din),
 	.v_req(v_req), .v_addr(v_addr), .v_ack(v_ack), .q(m_q),
 	.MA(MA), .MD(MD), .MRD_N(MRD_N), .MWR_N(MWR_N)
 );
+
+// ---------------------------------------------------------------------------------------------
+// diagnostics of the bring-up (zx_scr: four rows of 16 squares in the top border, bit 15 on the left, green 1)
+//   row 0: 15 PLL 2 locked, 14 the loader was active, 13 a ROM byte was written, 12 a non-zero ROM byte, 11 the loader
+//          does not hold the machines now, 10 MCU not busy now, 9 machine sel not in reset now, 8 a CPU write to the
+//          SRAM was made, 7 a CPU read of the SRAM gave a non-zero word, 6 a video read gave a non-zero word, 5 the
+//          border of sel is not 0, 4 no late read (sticky), 3 the frame blinks (frame[4]), 2..0 sel
+//   row 1: the SRAM self test: 15 done, 14 no error, 13 32768 ROM bytes written, 4..0 the first wrong word, bits 20..16
+//   row 2: the self test: the data bits that were wrong
+//   row 3: the self test: the first wrong word, bits 15..0
+//   row 4 (bottom border): the address of the last opcode fetch of machine sel (taken at the start of the frame)
+//   row 5: 15..10 #7FFD of sel, 9..7 its border, 6 a CPU read of the SRAM gave a non-zero word, 5..0 events of sel
+//          since its reset (zx_oct dbg_ev: 5 INT acknowledge, 4 opcode from RAM, 3 I/O write, 2 memory write,
+//          1 #7FFD write, 0 #FE write)
+
+reg dg_ld = 1'b0, dg_rom = 1'b0, dg_romnz = 1'b0, dg_wr = 1'b0, dg_rdnz = 1'b0, dg_vnz = 1'b0, dg_late = 1'b0;
+reg [15:0] dg_romcnt = 16'd0, dg_addr = 16'd0, dg_q = 16'd0;
+reg [1:0] dg_rd = 2'b00, dg_v = 2'b00, dg_cap = 2'b00;
+reg dg_arm = 1'b0;
+
+always @(posedge clk_bus) begin
+	dg_rd <= {dg_rd[0], m_req & ~m_we};
+	dg_v <= {dg_v[0], v_ack};
+	dg_cap <= {dg_cap[0], 1'b0};
+	if (ld_active) dg_ld <= 1'b1;
+	if (rom_we) begin
+		dg_rom <= 1'b1;
+		dg_romcnt <= dg_romcnt + 1'd1;
+		if (ld_data_mcu != 8'd0) dg_romnz <= 1'b1;
+	end
+	if (m_req && m_we) dg_wr <= 1'b1;
+	if (dg_rd[1] && m_q != 16'd0) dg_rdnz <= 1'b1;
+	if (dg_v[1] && m_q != 16'd0) dg_vnz <= 1'b1;
+	if (|m_late) dg_late <= 1'b1;
+	if (ce7 && hc == 9'd0 && vc == 9'd0)
+		dg_arm <= 1'b1;
+	else if (dg_arm && m_req && !m_we && m_addr[19:17] == sel) begin
+		dg_arm <= 1'b0;
+		dg_addr <= m_addr[16:1];
+		dg_cap[0] <= 1'b1;
+	end
+	if (dg_cap[1])
+		dg_q <= m_q;
+end
+
+reg [15:0] dg_pc = 16'd0;
+always @(posedge clk_bus)
+	if (ce7 && hc == 9'd0 && vc == 9'd0)
+		dg_pc <= dbg_pc;
+
+wire [95:0] diag = {
+	dbg_7ffd, v_border, dg_rdnz, dbg_ev, dg_pc, mt_first[15:0], mt_bad,
+	mt_done, mt_ok, dg_romcnt == 16'h8000, 8'd0, mt_first[20:16],
+	locked_p, dg_ld, dg_rom, dg_romnz, ~ld_hold, ~mcu_busy, ~m_reset[sel], dg_wr,
+	dg_rdnz, dg_vnz, v_border != 3'd0, ~dg_late, frame[4], sel
+};
 
 // ---------------------------------------------------------------------------------------------
 // video: the selected machine full screen
@@ -312,7 +396,7 @@ wire [3:0] pix;
 
 zx_scr #(.BASE(2'd0)) scr(
 	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .flash(frame[4]),
-	.m(sel), .scr7(v_scr7), .border(v_border),
+	.m(sel), .scr7(v_scr7), .border(v_border), .diag_en(sw_diag), .diag(diag),
 	.v_req(v_req), .v_addr(v_addr), .v_ack(v_ack), .q(m_q),
 	.pix(pix)
 );

@@ -18,6 +18,10 @@
  exact raster of the machine comes with the wall, milestone 4).
 
  pix is the colour of the pixel hc / vc of two ce7 before (as pentagon.v), {bright, G, R, B}.
+
+ Diagnostics (diag_en): six rows of 16 squares, four in the top border (lines 284, 292, 300, 308) and two in the
+ bottom one (196, 204), 6 lines each, squares 12 x 6 pixels every 16 from hc 0; row r shows diag[r*16 +: 16], bit 15
+ on the left: 1 bright green, 0 bright red.
 */
 
 module zx_scr #(
@@ -32,6 +36,8 @@ module zx_scr #(
 	input wire [2:0] m,
 	input wire scr7,                    // #7FFD bit 3 of machine m
 	input wire [2:0] border,
+	input wire diag_en,
+	input wire [95:0] diag,
 
 	output reg v_req = 1'b0,
 	output reg [20:0] v_addr = 21'd0,
@@ -104,6 +110,15 @@ reg [7:0] attr_r = 8'd0;
 reg pap_r = 1'b0, blank_r = 1'b0;
 reg [2:0] brd_r = 3'd0;
 
+// the diagnostics square of this pixel
+wire dg_top = vc >= 9'd284 && vc < 9'd314;
+wire dg_bot = vc >= 9'd196 && vc < 9'd210;
+wire [8:0] dv = vc - (dg_top ? 9'd284 : 9'd196);
+wire dg_on = diag_en && (dg_top || dg_bot) && dv[2:0] < 3'd6 && hc < 9'd256 && hc[3:0] < 4'd12;
+wire [2:0] dg_row = dg_top ? {1'b0, dv[4:3]} : {2'b10, dv[3]};
+wire [6:0] dg_i = {dg_row, ~hc[7:4]};
+reg dg_r = 1'b0, dg_b = 1'b0;
+
 always @(posedge clk)
 	if (ce7) begin
 		pap_r <= paper;
@@ -115,7 +130,11 @@ always @(posedge clk)
 		end else
 			shreg <= {shreg[6:0], 1'b0};
 
-		if (blank_r)
+		dg_r <= dg_on;
+		dg_b <= diag[dg_i];
+		if (dg_r)
+			pix <= dg_b ? 4'b1100 : 4'b1010;
+		else if (blank_r)
 			pix <= 4'd0;
 		else if (pap_r)
 			pix <= (shreg[7] ^ (attr_r[7] & flash)) ? {attr_r[6], attr_r[2:0]} : {attr_r[6], attr_r[5:3]};

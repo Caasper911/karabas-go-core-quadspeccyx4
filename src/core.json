@@ -19,7 +19,7 @@
     ],
     "boards": {
         "go": {
-            "build": "26111401",
+            "build": "26111402",
             "bitstream": "karabas_go.bin"
         }
     },
@@ -85,6 +85,16 @@
             "options": [
                 "ABC",
                 "ACB"
+            ],
+            "default": 0
+        },
+        {
+            "index": 8,
+            "type": "S",
+            "name": "Diagnostics",
+            "options": [
+                "off",
+                "on"
             ],
             "default": 0
         },

@@ -10,6 +10,8 @@ src/test/_xmsgs/
 src/test/*.lso
 src/test/xlnx_auto_0_xdb/
 src/sim/work_v/
+src/sim/work_c/
+src/sim/work_ps/
 
 # ISE intermediate files of the core build (the .bin and .kg files are the release and are committed)
 src/xst/

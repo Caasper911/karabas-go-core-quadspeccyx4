@@ -88,7 +88,7 @@ sram_model model (.A(MA), .DQ(MD), .RD_N(MRD_N), .WR_N(MWR_N), .drv(sram.md_oe[0
 wire [3:0] pix;
 zx_scr #(.BASE(2'd0)) scr (
 	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .flash(frame[4]),
-	.m(M), .scr7(`SCR7 != 0), .border(BORDER),
+	.m(M), .scr7(`SCR7 != 0), .border(BORDER), .diag_en(1'b0), .diag(96'd0),
 	.v_req(v_req), .v_addr(v_addr), .v_ack(v_ack), .q(q),
 	.pix(pix)
 );
