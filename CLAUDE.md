@@ -20,7 +20,11 @@ same change as the code they describe.
 ## State
 
 Milestones 1 (the CPU), 2 (eight machines on SRAM), 3 (the first Go core), 4 (the wall) and 6 (16 machines) done;
-milestone 5 (Mini / Mini G) open. Milestone 3: the first core for the Go
+milestone 5 (Mini / Mini G) built, not tried on those boards (the user has a Go).
+- Milestone 5: `karabas_{mini,minig}_top.v` (QuadSpeccy's), HDMI `rtl/video/hdmi_out.v` = `hdmi_enc.vhd` (zhdmi_tx of
+  the modules without its serializers, GPL) + `tmds_oserdes.v` (PLL x10 on pclk, BUFPLL, OSERDES2 master/slave per
+  lane, XAPP495 style; the fabric serializer at 368 MHz failed). pclk now from a DCM (CLKFX 21/8 of clk_bus): the
+  XC6SLX25 has two PLLs, the main one and the HDMI one. `src/sim/run_tmds.sh` checks the bit order of the serializer. Milestone 3: the first core for the Go
 (`src/speccywall.kg`: eight machines, the selected one full screen, 720 x 576 or 1280 x 800) works on the Go
 (2026-11-14; the user tests on the board).
 
@@ -67,8 +71,9 @@ milestone 5 (Mini / Mini G) open. Milestone 3: the first core for the Go
 
 ## Build
 
-- `cd src && make go` as QuadSpeccy (see its CLAUDE.md: MSYS2 make from Git Bash, `make_core.py` of the sibling
-  `../karabas-go-tools`, `make go-report`); only the Go for now (`BOARDS = go`). About 10 minutes. The `.bin` / `.kg`
+- `cd src && make` builds go, mini, minig into `speccywall.kg`; `make go` as QuadSpeccy (see its CLAUDE.md: MSYS2 make from Git Bash, `make_core.py` of the sibling
+  `../karabas-go-tools`, `make go-report`). map sometimes stops in Global Placement without a message (as in
+  QuadSpeccy): run make again. About 10 minutes. The `.bin` / `.kg`
   are the release, committed. Check the `.syr` Clock Information (pclk, clk_bus, clk_sys, MCU_SCK only).
 - Measured: 3147 LUT, 1047 slices, clk_bus 32.7 ns of 35.7, pclk 13.51 of 13.59 (the blend of kg_l2_osd_overlay).
 

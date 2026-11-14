@@ -1,7 +1,7 @@
 # Command line build of the SpeccyWall core (ISE 14.7), after karabas-go-core-tsconf/src/Makefile.
 #
-#   make                 all the boards (speccywall.kg): Karabas Go for now
-#   make go             one board: synthesis, implementation, bitstream, its part of speccywall.kg
+#   make                 all the boards (speccywall.kg): Karabas Go, Mini, Mini G
+#   make go|mini|minig   one board: synthesis, implementation, bitstream, its part of speccywall.kg
 #   make go-xst          one step: <board>-xst (.ngc), <board>-impl (.bin), <board>-core (.kg)
 #   make go-report       LUTs, slices, block RAMs and the timing result of the last build
 #   tail -f karabas_go_build.log   the progress of a build: every ISE step writes there too (the synthesis
@@ -15,7 +15,7 @@
 # $(XILINX_DIR) and the 32-bit bitgen (the nt64 one fails on Windows 10).
 
 PART = xc6slx25-ftg256-2
-BOARDS = go
+BOARDS = go mini minig
 
 SHELL = /bin/bash
 .SHELLFLAGS = -e -o pipefail -c
@@ -54,6 +54,8 @@ KG = speccywall.kg
 JSON = core.json
 
 MAP_T_go = 2
+MAP_T_mini = 2
+MAP_T_minig = 2
 
 
 # map single-threaded (-mt off): with -mt 2 map crashed now and then in its Global Placement without a message (four

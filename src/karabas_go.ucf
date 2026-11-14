@@ -229,7 +229,7 @@ NET "FLASH_HOLD_N"  LOC="P12"  | IOSTANDARD = LVCMOS33; # CONF_IO3
 #     pll_clk<1> 28.03 MHz clk_bus: the machines, the SRAM address and read, the MCU link, the line buffer writes;
 #                                   clk_sys / 3, every edge of clk_bus is an edge of clk_sys: the paths between them
 #                                   are timed by the PERIOD derived onto both (11.9 ns).
-#     pll_clk<2>  7.97 MHz clk_8:   not used on the Go
+#     pll_clk<2>  7.97 MHz clk_8:   the clock of the FT812 (FT_CLK_OUT of the Mini boards; not used on the Go)
 #   PLL 2 on clk_bus: pclk 73.6 MHz = clk_bus * 21 / 8: the VGA raster, the OSD overlay, V_CLK. Crossings from
 #   clk_bus: the line buffer (a block RAM, two clocks), the frame mark (a toggle through three registers), static
 #   settings (the video mode, the OSD bitmap and its settings: the overlay takes them at the start of a frame).

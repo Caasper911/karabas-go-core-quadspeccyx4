@@ -89,9 +89,13 @@
 
 ## Milestone 5: платы Mini и Mini G
 
-- [ ] Обёртки `karabas_{mini,minig}_top.v`, ucf (HDMI), сборка трёх плат, все constraints
-- [ ] Полный экран / стена по Win+`~
-- [ ] Железо
+- [x] Обёртки `karabas_{mini,minig}_top.v` (из QuadSpeccy), ucf, prj; `core.json` на три платы
+- [x] HDMI на `pclk` 73,6 МГц: OSERDES2 + BUFPLL + PLL ×10 (`tmds_oserdes.v`, `hdmi_enc.vhd`); сериализатор модулей на
+      368 МГц не сошёлся (−2,3 нс, DCM выше 333 МГц); `run_tmds.sh` — 4313 слов без ошибок
+- [x] `pclk` с DCM вместо второго PLL (два PLL у XC6SLX25: основной и HDMI)
+- [x] Сборка Go: 1918 слайсов (51 %), Mini: 2348 (62 %), все constraints
+- [x] Сборка Mini G: 2337 слайсов (62 %), все constraints (`pclkx2` 6,66 из 6,80, `pclk` 13,18 из 13,59)
+- [ ] Железо Mini / Mini G (у пользователя Go)
 
 ## Milestone 6: 16 машин
 
@@ -101,7 +105,7 @@
 - [x] Клавиатура: Shift+Win+1..8 — машины 9..16, стрелки по 4 рядам; стена 4 ряда
 - [x] Сборка Go: 1885 слайсов (50 %), 34 RAMB16, все constraints; `clk_bus` 24,0 нс, `pclk` 13,19 из 13,59
 - [x] Железо: все 16 машин работают (2026-11-14)
-- [ ] Сборка Mini / Mini G (milestone 5)
+- [x] Сборка Mini / Mini G — milestone 5
 
 ## Открытые вопросы
 

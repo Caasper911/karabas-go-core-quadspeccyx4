@@ -14,7 +14,9 @@
  Clocks:
    PLL 1 on CLK_50MHZ (VCO 925 MHz, as QuadSpeccy): clk_sys 84.09 MHz (/11, the write strobe of sram_ctrl), clk_bus
    28.03 MHz (/33: the machines, the MCU link, the line buffer writes), clk_8 7.97 MHz (/116, the FT812 of the Mini).
-   PLL 2 on clk_bus: pclk = clk_bus * 21 / 8 = 73.6 MHz (VCO 588.6 MHz): the VGA raster, the OSD overlay, the DAC.
+   A DCM on clk_bus: pclk = clk_bus * 21 / 8 = 73.6 MHz (CLKFX; CLK0 feedback, so pclk is aligned with clk_bus every 8
+   of its clocks): the VGA raster, the OSD overlay, the DAC. Not a PLL: the XC6SLX25 has two, the second one is the
+   HDMI of the Mini boards (x 10 on pclk, tmds_oserdes.v).
 
  Hotkeys (zx_kbd): Win + 1..8 the machine with the keyboard and the sound (Shift + Win + 1..8: 9..16), Win + arrows
  the machine next to it (4 columns, 4 rows), Win + ` the wall / the selected machine full screen (the wall after the start; 720 x 576 is always
@@ -82,7 +84,7 @@ module speccywall #(
 // clocks
 
 wire clk_sys, locked, locked_p;
-wire [5:0] pll_clk, pll_p;
+wire [5:0] pll_clk;
 
 kg_pll #(
 	.DIVCLK_DIVIDE(2), .CLKFBOUT_MULT(37),
@@ -100,21 +102,15 @@ BUFG bufg_clk_bus(.I(pll_clk[1]), .O(clk_bus));
 
 assign areset = ~locked;
 
-// VCO 28.03 * 21 = 588.6 MHz, /8 = 73.6 MHz
-kg_pll #(
-	.CLKIN_PERIOD(35.677),
-	.DIVCLK_DIVIDE(1), .CLKFBOUT_MULT(21),
-	.CLKOUT0_DIVIDE(8), .CLKOUT1_DIVIDE(8), .CLKOUT2_DIVIDE(8),
-	.CLKOUT3_DIVIDE(8), .CLKOUT4_DIVIDE(8), .CLKOUT5_DIVIDE(8),
-	.IBUFG(0),
-	.BUFG_MASK(6'b000001)
-) pll_p_i (
+// pclk = 28.03 * 21 / 8 = 73.6 MHz
+kg_dcm #(.CLKIN_PERIOD(35.677), .CLKFX_MULTIPLY(21), .CLKFX_DIVIDE(8)) dcm_p(
 	.clk_in(clk_bus),
 	.rst(~locked),
-	.clk_out(pll_p),
+	.clk_fx(pclk),
+	.clk_fx180(),
+	.clk_0(),
 	.locked(locked_p)
 );
-assign pclk = pll_p[0];
 
 // ---------------------------------------------------------------------------------------------
 // MCU

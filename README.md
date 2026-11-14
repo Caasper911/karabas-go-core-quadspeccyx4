@@ -5,8 +5,8 @@
 (четыре машины), но машина уже не отдельный модуль: один процессор и одна шинная логика обслуживают по очереди
 восемь машин, состояние каждой лежит в своей ячейке памяти (контекст); таких движков два.
 
-**Состояние: 16 машин работают на Karabas Go (2026-11-14).** Ядро `src/speccywall.kg` (пока только Go). Mini и
-Mini G — следующий шаг. План в [docs/PLAN.md](docs/PLAN.md), устройство в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+**Состояние: 16 машин работают на Karabas Go (2026-11-14).** Ядро `src/speccywall.kg` — Go, Mini, Mini G (HDMI);
+на Mini / Mini G ещё не проверено. План в [docs/PLAN.md](docs/PLAN.md), устройство в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Как пользоваться
 
