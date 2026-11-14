@@ -7,14 +7,15 @@
  The reader of the wall (1280 x 800, vga_out.v mode 1, wall): before every VGA row of the grid it reads the Spectrum
  line of the four machines of the cell row into the row buffer (in vga_out, written here on clk_bus, read on pclk).
 
- The grid (vga_out): 4 x 4 cells of 258 x 194 at x 124, y 12 of the visible 1280 x 800: the paper 256 x 192 at 1:1
- and a border of 1 pixel around it in the border colour of the machine; cell row cr, column c is machine 4 cr + c.
+ The grid (vga_out): 4 x 4 cells of 320 x 200, the whole visible 1280 x 800: the paper 256 x 192 at 1:1 in the middle
+ (x 32..287, lines 4..195 of the cell) and the border around it in the border colour of the machine; cell row cr,
+ column c is machine 4 cr + c.
  Visible row y is VGA row py = (y + 848) mod 960; py 0 starts when the Spectrum is at line 2, pixel 0 (vga_out), and a
  row lasts 1568 pclk = 597 1/3 clocks of clk_bus: here rows of 597, 597, 598 clocks from that point.
 
  Eight clocks after the start of row R it reads for row R + 1 (target): for each of the four machines (ROWS cell rows
  are built; the others are not read) v_m = machine, two clocks later its border colour and screen page (v_border,
- v_scr7 of zx_oct) are taken; for a paper row (line lc 1..192 of the cell: Spectrum line lc - 1) the 16 bitmap and
+ v_scr7 of zx_oct) are taken; for a paper row (line lc 4..195 of the cell: Spectrum line lc - 4) the 16 bitmap and
  16 attribute words (pairs of characters) through the video port of sram_ctrl: v_req held, a word asked in every clock
  with v_ack, the word in q two clocks after its v_ack. Entry {par, c, w} of the row buffer = {attribute word, bitmap
  word} of pair w; par = the parity of the target row (vga_out reads the parity of its row). 128 reads in under
@@ -55,8 +56,8 @@ module wall_fetch #(
 reg [9:0] rclk = 10'd0;             // clock in the row
 reg [1:0] rsub = 2'd0;              // the row in the Spectrum line (597, 597, 598 clocks)
 reg [9:0] ty = 10'd113;             // the target row: visible y (0..959, visible 0..799)
-reg [2:0] tcr = 3'd0;               // its cell row (grid rows from y 12)
-reg [7:0] tlc = 8'd101;             // its line in the cell, 0..193
+reg [2:0] tcr = 3'd0;               // its cell row
+reg [7:0] tlc = 8'd113;             // its line in the cell, 0..199
 reg tpar = 1'b1;
 
 wire frame_ev = ce7 && vc == 9'd2 && hc == 9'd0;
@@ -65,22 +66,22 @@ wire start = rclk == 10'd8;      // well after the display of row R - 1 (the sam
 
 always @(posedge clk)
 	if (frame_ev) begin
-		// row 0 starts: the target row 1 is y (1 - 848) mod 960 = 113: cell row 0, line 101
+		// row 0 starts: the target row 1 is y (1 - 848) mod 960 = 113: cell row 0, line 113
 		rclk <= 10'd0;
 		rsub <= 2'd0;
 		ty <= 10'd113;
 		tcr <= 3'd0;
-		tlc <= 8'd101;
+		tlc <= 8'd113;
 		tpar <= 1'b1;
 	end else if (row_end) begin
 		rclk <= 10'd0;
 		rsub <= (rsub == 2'd2) ? 2'd0 : rsub + 1'd1;
 		tpar <= ~tpar;
 		ty <= (ty == 10'd959) ? 10'd0 : ty + 1'd1;
-		if (ty == 10'd11) begin
+		if (ty == 10'd959) begin
 			tcr <= 3'd0;
 			tlc <= 8'd0;
-		end else if (tlc == 8'd193) begin
+		end else if (tlc == 8'd199) begin
 			tlc <= 8'd0;
 			tcr <= tcr + 1'd1;
 		end else
@@ -88,7 +89,7 @@ always @(posedge clk)
 	end else
 		rclk <= rclk + 1'd1;
 
-wire t_grid = ty >= 10'd12 && ty < 10'd788 && tcr < ROWS;
+wire t_grid = ty < 10'd800 && tcr < ROWS;
 
 // ---------------------------------------------------------------------------------------------
 // the reads of a row
@@ -133,8 +134,8 @@ always @(posedge clk) begin
 	case (st)
 		3'd0: if (start && t_grid && en) begin
 			cr <= tcr[1:0];
-			paper <= tlc != 8'd0 && tlc != 8'd193;
-			pr <= tlc - 1'd1;
+			paper <= tlc >= 8'd4 && tlc < 8'd196;
+			pr <= tlc - 3'd4;
 			par <= tpar;
 			c <= 2'd0;
 			st <= 3'd1;

@@ -23,12 +23,12 @@
  pclk are set to row 0 when the Spectrum is at line 2, pixel 0 (a toggle through three registers; set again only
  when they are more than 7 clocks off, so the lock does not jitter by the clock of the synchroniser).
 
- The wall (mode 1 and wall_i): instead of the full screen a grid of 4 x 4 cells of 258 x 194 at x 124, y 12: the
- paper of machine 4 cr + c at 1:1 with a border of 1 pixel in its border colour; cell rows from ROWS on are grey
- (not built); the border of the selected cell blinks white with flash_i. The rows come from wall_fetch.v: a row buffer
+ The wall (mode 1 and wall_i): instead of the full screen a grid of 4 x 4 cells of 320 x 200, the whole 1280 x 800:
+ the paper of machine 4 cr + c at 1:1 in the middle (x 32..287, lines 4..195) and its border colour around it; cell
+ rows from ROWS on are grey (not built); the outer pixel of the selected cell blinks white with flash_i. The rows come from wall_fetch.v: a row buffer
  of 2 x 4 x 16 entries of {attribute word, bitmap word} of a pair of characters (written on clk_bus, read on pclk),
  entry {py[0], c, pair}, and the border colours brd_i[py[0]*12 + c*3 +: 3]; the cell row and the line in the cell
- count with py (py 0 is y 112: cell row 0, line 100).
+ count with py (py 0 is y 112: cell row 0, line 112).
 
  Out: rgb, hs / vs / de high active (the OSD overlay takes them so), hs_neg / vs_neg the polarity of the pins; 2 clocks
  of latency after the counters.
@@ -129,10 +129,10 @@ reg [8:0] sx = 9'd0;                           // the Spectrum pixel from the le
 reg [4:0] acc = 5'd0;
 reg [9:0] gy = 10'd112;                        // the wall: visible y of this row, its cell row and line in the cell
 reg [2:0] gcr = 3'd0;
-reg [7:0] glc = 8'd100;
+reg [7:0] glc = 8'd112;
 reg [1:0] gcc = 2'd0;                          // the cell column and the pixel in the cell of this clock
 reg [8:0] gcx = 9'd0;
-wire [8:0] gpx = gcx - 1'd1;                    // the paper pixel 0..255 (gcx 1..256)
+wire [8:0] gpx = gcx - 6'd32;                   // the paper pixel 0..255 (gcx 32..287)
 reg [6:0] rb_ra = 7'd0;
 wire [31:0] rb_q;
 
@@ -147,14 +147,14 @@ always @(posedge pclk) begin
 		sub <= 2'd0;
 		gy <= 10'd112;
 		gcr <= 3'd0;
-		glc <= 8'd100;
+		glc <= 8'd112;
 	end else if (hx == H - 1'd1) begin
 		hx <= 12'd0;
 		gy <= (gy == 10'd959) ? 10'd0 : gy + 1'd1;
-		if (gy == 10'd11) begin
+		if (gy == 10'd959) begin
 			gcr <= 3'd0;
 			glc <= 8'd0;
-		end else if (glc == 8'd193) begin
+		end else if (glc == 8'd199) begin
 			glc <= 8'd0;
 			gcr <= gcr + 1'd1;
 		end else
@@ -181,10 +181,10 @@ always @(posedge pclk) begin
 
 	lb_ra <= {sl[1:0], sx_hc};
 
-	if (hx == 12'd123) begin
+	if (hx == H - 1'd1) begin
 		gcc <= 2'd0;
 		gcx <= 9'd0;
-	end else if (gcx == 9'd257) begin
+	end else if (gcx == 9'd319) begin
 		gcc <= gcc + 1'd1;
 		gcx <= 9'd0;
 	end else
@@ -212,8 +212,9 @@ wire pic_y = mode ? (py >= 10'd849 || py < 10'd687) : vis_y;
 wire hs_x = mode ? (hx >= 12'd1344 && hx < 12'd1472) : (hx >= 12'd1974 && hx < 12'd2142);
 wire vs_y = mode ? (py >= 10'd691 && py < 10'd697) : (py >= 10'd484 && py < 10'd488);
 wire edge_px = hx == 12'd0 || hx == 12'd1279 || py == 10'd848 || py == 10'd687;
-wire g_in = wall && hx >= 12'd124 && hx < 12'd1156 && gy >= 10'd12 && gy < 10'd788;
-wire g_brdx = gcx == 9'd0 || gcx == 9'd257 || glc == 8'd0 || glc == 8'd193;
+wire g_in = wall && hx < 12'd1280 && gy < 10'd800;
+wire g_brdx = gcx < 9'd32 || gcx >= 9'd288 || glc < 8'd4 || glc >= 8'd196;
+wire g_edge = gcx == 9'd0 || gcx == 9'd319 || glc == 8'd0 || glc == 8'd199;
 
 // stage a (the address of the line buffer is out), stage b (its colour)
 reg vis_a = 1'b0, pic_a = 1'b0, hs_a = 1'b0, vs_a = 1'b0, edge_a = 1'b0, str_a = 1'b0;
@@ -237,7 +238,7 @@ always @(posedge pclk) begin
 	g_a <= g_in;
 	gb_a <= g_brdx;
 	gabs_a <= gcr >= ROWS;
-	gsel_a <= {gcr[1:0], gcc} == sel_s && fl_s[1];
+	gsel_a <= {gcr[1:0], gcc} == sel_s && fl_s[1] && g_edge;
 	gh_a <= gpx[3];
 	gbit_a <= gpx[2:0];
 	gbc_a <= brd_i[{py[0], gcc} * 3 +: 3];

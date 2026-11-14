@@ -197,22 +197,20 @@ endfunction
 function [23:0] expect_rgb;
 	input integer x;
 	input integer y;
-	integer py, sx, gx, gy, cc, cx, cr, lc;
+	integer py, sx, cc, cx, cr, lc;
 	reg [8:0] sl, h;
 	begin
-		if (`WALL != 0 && x >= 124 && x < 1156 && y >= 12 && y < 788) begin
-			gx = x - 124;
-			gy = y - 12;
-			cc = gx / 258;
-			cx = gx % 258;
-			cr = gy / 194;
-			lc = gy % 194;
+		if (`WALL != 0) begin
+			cc = x / 320;
+			cx = x % 320;
+			cr = y / 200;
+			lc = y % 200;
 			if (cr >= 2)
 				expect_rgb = 24'h303030;
-			else if (cx == 0 || cx == 257 || lc == 0 || lc == 193)
+			else if (cx < 32 || cx >= 288 || lc < 4 || lc >= 196)
 				expect_rgb = rgb({1'b0, m_brd(cr * 4 + cc)});
 			else
-				expect_rgb = rgb(wall_pix(cr * 4 + cc, lc - 1, cx - 1));
+				expect_rgb = rgb(wall_pix(cr * 4 + cc, lc - 4, cx - 32));
 		end else if (`MODE != 0) begin
 			py = (848 + y) % 960;
 			if (`WALL == 0 && x >= 112 && x < 1168 && (py >= 849 || py < 687)) begin
