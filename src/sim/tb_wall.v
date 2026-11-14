@@ -3,13 +3,15 @@
 /*
  tb_wall.v
 
- Eight Pentagon 128 of zx_oct (one tv80o_core and one bus logic) on sram_ctrl and the SRAM model, against eight
- golden machines: tv80_core each with a behavioural bus (its own memory, no latency, ports and #7FFD written here
+ Eight Pentagon 128 of zx_oct (one tv80o_core and one bus logic) on sram_arb, sram_ctrl and the SRAM model, against
+ eight golden machines: tv80_core each with a behavioural bus (its own memory, no latency, ports and #7FFD written here
  again), the cen of golden CPU k in slot k as in the engine. Every T-state every output of CPU k of the engine (in
  slot k + 1, the second read port) is compared with golden CPU k; at the end the 128 KB of each machine in the SRAM
  model with the memory of the golden one, the border, beeper, MIC and the AY registers. Also: zx_oct late (a read not
  there in time) never set, the SRAM model counts no timing / fight errors, a video reader (v_req) on the SRAM above
- the machines reads the words it should.
+ the machines reads the words it should. A second engine (eng1, BASE 1: the second MB) runs the same code on a copy of
+ the memory with the same inputs, in lock step: its requests meet those of eng every time, the queues of sram_arb
+ are as full as they can be; it must never be late either.
 
  `define MODE_ROM: the ROM 128 / 48 (work_w/roms.hex) loaded through the loader port, the RAM zero, INT of
  zx_timing, the machines out of reset 1000 T-states one after the other (SAME_START: all at once, one code in lock
@@ -144,6 +146,13 @@ wire m_req, m_we;
 wire [21:0] m_addr;
 wire [7:0] m_din;
 wire [15:0] m_q;
+wire m_rv, m_re;
+wire [2:0] m_rm;
+wire [7:0] m_rd;
+wire e1_req, e1_we;
+wire [21:0] e1_addr;
+wire [7:0] e1_din;
+wire [7:0] late1;
 reg rom_we = 1'b0;
 reg [14:0] rom_wa = 15'd0;
 reg [7:0] rom_wd = 8'd0;
@@ -158,11 +167,30 @@ wire [7:0] late;
 
 zx_oct #(.BASE(2'd0)) eng (
 	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset), .nmi(nmi),
-	.sel(sel), .keys(keys), .tape_in(tape_in), .kempston(kempston),
-	.m_req(m_req), .m_we(m_we), .m_addr(m_addr), .m_din(m_din), .m_q(m_q),
+	.sel_en(1'b1), .sel(sel), .keys(keys), .tape_in(tape_in), .kempston(kempston),
+	.m_req(m_req), .m_we(m_we), .m_addr(m_addr), .m_din(m_din), .m_rv(m_rv & ~m_re), .m_rm(m_rm), .m_rd(m_rd),
 	.rom_we(rom_we), .rom_wa(rom_wa), .rom_wd(rom_wd),
 	.beeper(beeper), .mic(mic), .v_m(v_m), .v_border(v_border), .v_scr7(v_scr7),
 	.ay_we(ay_we), .ay_wa(ay_wa), .ay_wd(ay_wd), .ay_ra(4'd0), .ay_rd(), .late(late)
+);
+
+zx_oct #(.BASE(2'd1)) eng1 (
+	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset), .nmi(nmi),
+	.sel_en(1'b1), .sel(sel), .keys(keys), .tape_in(tape_in), .kempston(kempston),
+	.m_req(e1_req), .m_we(e1_we), .m_addr(e1_addr), .m_din(e1_din), .m_rv(m_rv & m_re), .m_rm(m_rm), .m_rd(m_rd),
+	.rom_we(rom_we), .rom_wa(rom_wa), .rom_wd(rom_wd),
+	.beeper(), .mic(), .v_m(3'd0), .v_border(), .v_scr7(),
+	.ay_we(), .ay_wa(), .ay_wd(), .ay_ra(4'd0), .ay_rd(), .late(late1)
+);
+
+wire c_req, c_we;
+wire [21:0] c_addr;
+wire [7:0] c_din;
+sram_arb arb (
+	.clk(clk_bus),
+	.e_req({e1_req, m_req}), .e_we({e1_we, m_we}), .e_addr({e1_addr, m_addr}), .e_din({e1_din, m_din}),
+	.c_req(c_req), .c_we(c_we), .c_addr(c_addr), .c_din(c_din), .q(m_q),
+	.rv(m_rv), .re(m_re), .rm(m_rm), .rd(m_rd)
 );
 
 reg v_req = 1'b0;
@@ -174,7 +202,7 @@ wire [1:0] MRD_N, MWR_N;
 
 sram_ctrl sram (
 	.clk_bus(clk_bus), .clk_sys(clk_sys),
-	.c_req(m_req), .c_we(m_we), .c_addr(m_addr), .c_din(m_din),
+	.c_req(c_req), .c_we(c_we), .c_addr(c_addr), .c_din(c_din),
 	.v_req(v_req), .v_addr(v_addr), .v_ack(v_ack), .q(m_q),
 	.MA(MA), .MD(MD), .MRD_N(MRD_N), .MWR_N(MWR_N)
 );
@@ -206,8 +234,8 @@ endfunction
 
 initial begin
 	for (k = 0; k < 8; k = k + 1) begin rst_cnt[k] = 20; nmi_cnt[k] = 0; end
-	// the words above the machines (the video reader): their address in both bytes
-	for (i = 8 * 65536; i < (1 << 21); i = i + 1)
+	// the words above the two engines (the video reader): their address in both bytes
+	for (i = 16 * 65536; i < (1 << 21); i = i + 1)
 		model.mem[i] = i[15:0] ^ i[20:5];
 `ifdef MODE_ROM
 	$readmemh("roms.hex", romw);
@@ -230,8 +258,10 @@ initial begin
 	for (i = 0; i < 8 * 131072; i = i + 1)
 		g_ram[i] = rnd_byte($random(seed));
 `endif
-	for (i = 0; i < 8 * 65536; i = i + 1)
+	for (i = 0; i < 8 * 65536; i = i + 1) begin
 		model.mem[i] = {g_ram[2*i+1], g_ram[2*i]};
+		model.mem[8 * 65536 + i] = {g_ram[2*i+1], g_ram[2*i]};
+	end
 
 	// the ROM through the loader port, one byte a clock
 	@(posedge clk_bus);
@@ -353,16 +383,28 @@ generate
 			.busak_n(), .A(gA[g*16 +: 16]), .dout(gdo[g*8 +: 8]), .mc(gmc[g*7 +: 7]), .ts(gts[g*7 +: 7]),
 			.intcycle_n(gintc_n[g]), .IntE(gie[g]), .stop()
 		);
+		// the register files start known (0) here and in both engines: a read at an unknown address gave the two
+		// engines different mixes of X through the byte select of sram_arb
+		integer ri;
+		initial
+			for (ri = 0; ri < 8; ri = ri + 1) begin
+				cpu.i_reg.RegsH[ri] = 8'd0;
+				cpu.i_reg.RegsL[ri] = 8'd0;
+				eng.core.i_reg.RegsH[g*8 + ri] = 8'd0;
+				eng.core.i_reg.RegsL[g*8 + ri] = 8'd0;
+				eng1.core.i_reg.RegsH[g*8 + ri] = 8'd0;
+				eng1.core.i_reg.RegsL[g*8 + ri] = 8'd0;
+			end
 
 		// the byte the CPU takes at its cen in T2 (opcode, memory, port, FF of an acknowledge): the engine one the same
 		always @(negedge clk_bus) begin
 			dinst = io_rd ? g_pdat[g] : (m1 && !gintc_n[g]) ? 8'hFF : g_memrd ? g_rd(g, a) : g_last;
 			if (cen && ts[2] && !loading && !frozen && !reset[g] && settle[g] == 0 &&
-				(m1 || (~gnoread[g] & ~gwrite[g])) && eng.c_dinst !== dinst) begin
+				(m1 || (~gnoread[g] & ~gwrite[g])) && (^dinst !== 1'bx) && eng.c_dinst !== dinst) begin
 				errors = errors + 1;
 				$display("%t clock %0d machine %0d takes %h, golden %h: A %h mc %b io %b ic %b src %b pdat %h mdat %h 7ffd %h / %h",
 					$time, cycles, g, eng.c_dinst, dinst, a, gmc[g*7 +: 7], giorq[g], gintc_n[g], eng.c_src[g],
-					eng.c_pdat[g], eng.c_mdat[g], eng.c_7ffd[g], g_7ffd[g]);
+					eng.c_pdat[g], (eng.c_fromrom[g] ? eng.c_romd[g] : eng.c_ramd[g]), eng.c_7ffd[g], g_7ffd[g]);
 				finish;
 			end
 		end
@@ -376,12 +418,20 @@ generate
 				st_bad = eng.core.ACC_m[g] !== cpu.ACC || eng.core.F_m[g] !== cpu.F || eng.core.PC_m[g] !== cpu.PC ||
 					eng.core.SP_m[g] !== cpu.SP || eng.core.I_m[g] !== cpu.I || eng.core.IntE_FF1_m[g] !== cpu.IntE_FF1 ||
 					eng.core.IntE_FF2_m[g] !== cpu.IntE_FF2 || eng.core.IR_m[g] !== cpu.IR || eng.core.INT_s_m[g] !== cpu.INT_s ||
-					eng.c_di[g] !== g_di[g];
+					(^g_di[g] !== 1'bx && eng.c_di[g] !== g_di[g]);
 				for (gr = 0; gr < 8; gr = gr + 1)
-					if (eng.core.i_reg.RegsH[g*8 + gr] !== cpu.i_reg.RegsH[gr] || eng.core.i_reg.RegsL[g*8 + gr] !== cpu.i_reg.RegsL[gr])
+					// (a register the golden CPU has unknown, from a read at an unknown address, is not compared: the SRAM model
+					// gives the two engines a mix of X there)
+					if ((^cpu.i_reg.RegsH[gr] !== 1'bx && eng.core.i_reg.RegsH[g*8 + gr] !== cpu.i_reg.RegsH[gr]) ||
+						(^cpu.i_reg.RegsL[gr] !== 1'bx && eng.core.i_reg.RegsL[g*8 + gr] !== cpu.i_reg.RegsL[gr]))
 						st_bad = 1'b1;
 				if (st_bad) begin
 					errors = errors + 1;
+					$display("  diffs: %b%b%b%b%b%b%b%b%b%b g_di %b c_di %b", eng.core.ACC_m[g] !== cpu.ACC, eng.core.F_m[g] !== cpu.F,
+						eng.core.PC_m[g] !== cpu.PC, eng.core.SP_m[g] !== cpu.SP, eng.core.I_m[g] !== cpu.I,
+						eng.core.IntE_FF1_m[g] !== cpu.IntE_FF1, eng.core.IntE_FF2_m[g] !== cpu.IntE_FF2,
+						eng.core.IR_m[g] !== cpu.IR, eng.core.INT_s_m[g] !== cpu.INT_s, (^g_di[g] !== 1'bx && eng.c_di[g] !== g_di[g]),
+						g_di[g], eng.c_di[g]);
 					$display("%t clock %0d machine %0d state differs: engine ACC %h F %h PC %h SP %h I %h IFF %b%b IR %h INT_s %b DI %h",
 						$time, cycles, g, eng.core.ACC_m[g], eng.core.F_m[g], eng.core.PC_m[g], eng.core.SP_m[g], eng.core.I_m[g],
 						eng.core.IntE_FF1_m[g], eng.core.IntE_FF2_m[g], eng.core.IR_m[g], eng.core.INT_s_m[g], eng.c_di[g]);
@@ -399,7 +449,7 @@ generate
 		always @(negedge clk_bus)
 			if (g == `TRACE_M && cycles >= `TRACE_FROM && slot == ((g + 1) & 7))
 				$display("%0d A %h mc %b ts %b io %b wr %b ic %b int %b | eng dinst %h di %h ACC %h PC %h | gold dinst %h di %h ACC %h PC %h",
-					cycles, a, gmc[g*7 +: 7], ts, giorq[g], gwrite[g], gintc_n[g], g_int_n, eng.c_src[g] ? eng.c_pdat[g] : eng.c_mdat[g],
+					cycles, a, gmc[g*7 +: 7], ts, giorq[g], gwrite[g], gintc_n[g], g_int_n, eng.c_src[g] ? eng.c_pdat[g] : (eng.c_fromrom[g] ? eng.c_romd[g] : eng.c_ramd[g]),
 					eng.c_di[g], eng.core.ACC_m[g], eng.core.PC_m[g], dinst, g_di[g], cpu.ACC, cpu.PC);
 `endif
 
@@ -467,7 +517,7 @@ integer m1s [0:7];
 integer ints [0:7];
 initial for (k = 0; k < 8; k = k + 1) begin settle[k] = 0; m1s[k] = 0; ints[k] = 0; ie_t[k] = 0; end
 wire [2:0] pm = slot - 3'd1;
-reg [7:0] late_seen = 8'd0;
+reg [7:0] late_seen = 8'd0, late1_seen = 8'd0;
 
 always @(negedge clk_bus) begin
 	if (!loading) begin
@@ -502,6 +552,13 @@ always @(negedge clk_bus) begin
 			$display("%t clock %0d late %b", $time, cycles, late);
 		end
 	end
+	if (late1 != late1_seen) begin
+		late1_seen = late1_seen | late1;
+		if (late1 & ~reset) begin
+			errors = errors + 1;
+			$display("%t clock %0d engine 1 late %b", $time, cycles, late1);
+		end
+	end
 	if (cycles == `CLOCKS)
 		finish;
 end
@@ -523,7 +580,7 @@ integer vreads = 0;
 always @(posedge clk_bus) begin
 	if (v_ack || !v_req) begin
 		v_req <= ($random(seed) & 3) == 0;
-		v_addr <= 21'h80000 + (($random(seed) & 32'h7FFFFFFF) % 21'h180000);
+		v_addr <= 21'h100000 + (($random(seed) & 32'h7FFFFFFF) % 21'h100000);
 	end
 	v_v1 <= v_ack;
 	v_a1 <= v_addr;

@@ -4,7 +4,8 @@
 /*
  speccywall.v
 
- SpeccyWall (docs/PLAN.md): eight Pentagon 128 on one engine (zx_oct) in the SRAM (sram_ctrl), on the screen the wall
+ SpeccyWall (docs/PLAN.md): sixteen Pentagon 128 on two engines (zx_oct, eight machines each: machine m = engine
+ m[3], machine m[2:0] in it) in the SRAM (sram_arb: a queue per engine, sram_ctrl), on the screen the wall
  (1280 x 800: 4 x 4 cells, the paper of each machine at 1:1, wall_fetch reads the rows through the video port of
  sram_ctrl) or the selected machine full screen (zx_scr: its screen through the video port; 1280 x 800 at scale 3 or
  720 x 576), vga_out on the pixel clock; the keyboard, beeper and the one AY of the selected machine. Everything of the
@@ -15,8 +16,8 @@
    28.03 MHz (/33: the machines, the MCU link, the line buffer writes), clk_8 7.97 MHz (/116, the FT812 of the Mini).
    PLL 2 on clk_bus: pclk = clk_bus * 21 / 8 = 73.6 MHz (VCO 588.6 MHz): the VGA raster, the OSD overlay, the DAC.
 
- Hotkeys (zx_kbd): Win + 1..8 the machine with the keyboard and the sound, Win + arrows the machine next to it (4
- columns, 2 rows), Win + ` the wall / the selected machine full screen (the wall after the start; 720 x 576 is always
+ Hotkeys (zx_kbd): Win + 1..8 the machine with the keyboard and the sound (Shift + Win + 1..8: 9..16), Win + arrows
+ the machine next to it (4 columns, 4 rows), Win + ` the wall / the selected machine full screen (the wall after the start; 720 x 576 is always
  full screen).
  OSD (core.json "osd", the "index" of the items): 0 joystick L, 1 joystick R, 2 video (0 720 x 576, 1 1280 x 800: the default),
  3 reset of the selected machine (F12), 4 reset of all (Menu+F12), 5 stripes in the side margins of 1280 x 800,
@@ -65,12 +66,12 @@ module speccywall #(
 	output wire beeper,
 
 	// the picture with the OSD (pclk), the syncs with the polarity of the raster
-	output wire [7:0] video_r,
-	output wire [7:0] video_g,
-	output wire [7:0] video_b,
-	output wire video_hs,
-	output wire video_vs,
-	output wire video_de,
+	output reg [7:0] video_r = 8'd0,
+	output reg [7:0] video_g = 8'd0,
+	output reg [7:0] video_b = 8'd0,
+	output reg video_hs = 1'b1,
+	output reg video_vs = 1'b1,
+	output reg video_de = 1'b0,
 
 	// the sound of the selected machine (clk_bus, signed)
 	output reg [15:0] audio_l = 16'd0,
@@ -218,7 +219,7 @@ wire [7:0] kbd_kempston;
 wire [3:0] kbd_sel;
 wire kbd_full_tgl;
 
-zx_kbd #(.ROWS(2)) kbd(
+zx_kbd #(.ROWS(4)) kbd(
 	.clk(clk_bus),
 	.reset(areset),
 	.kb_status(kb_status),
@@ -238,7 +239,8 @@ zx_kbd #(.ROWS(2)) kbd(
 	.full_tgl(kbd_full_tgl)
 );
 
-wire [2:0] sel = kbd_sel[2:0];
+wire [3:0] sel = kbd_sel;
+wire [2:0] sm = sel[2:0];             // the machine in its engine
 
 // the wall or the selected machine full screen (Win + `); 720 x 576 has no wall
 reg full = 1'b0;
@@ -255,17 +257,17 @@ wire ld_hold = (ld_active && ld_kind == 2'd0) | mcu_busy;
 wire mt_active;
 wire rst_all = areset | ld_hold | sw_reset_all | hw_btn[1] | mt_active;
 wire rst_sel = sw_reset | hw_btn[0];
-reg [7:0] m_reset = 8'hFF;
+reg [15:0] m_reset = 16'hFFFF;
 reg [7:0] rst_cnt = 8'hFF;
 
 always @(posedge clk_bus)
 	if (rst_all || rst_sel) begin
-		m_reset <= m_reset | (rst_all ? 8'hFF : (8'd1 << sel));
+		m_reset <= m_reset | (rst_all ? 16'hFFFF : (16'd1 << sel));
 		rst_cnt <= 8'hFF;
 	end else if (rst_cnt != 8'd0)
 		rst_cnt <= rst_cnt - 1'd1;
 	else
-		m_reset <= 8'h00;
+		m_reset <= 16'h0000;
 
 // the ROM: kind 0, the first 32 KB of the address space of the MCU
 wire rom_we = ld_wr_mcu && ld_kind == 2'd0 && ld_addr_mcu[31:15] == 17'd0;
@@ -287,11 +289,8 @@ reg [2:0] slot = 3'd0;
 always @(posedge clk_bus)
 	slot <= ce_cpu ? 3'd1 : slot + 1'd1;
 
-wire m_req, m_we;
-wire [21:0] m_addr;
-wire [7:0] m_din;
 wire [15:0] m_q;
-wire [7:0] m_beeper, m_mic, m_late;
+wire [15:0] m_beeper, m_mic, m_late;
 wire [2:0] v_border;
 wire v_scr7;
 wire ay_we;
@@ -300,24 +299,66 @@ wire [7:0] ay_wd, ay_rd;
 wire [15:0] dbg_pc;
 wire [5:0] dbg_7ffd, dbg_ev;
 
-zx_oct #(.BASE(2'd0)) eng (
-	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(m_reset),
-	.nmi(sw_nmi ? (8'd1 << sel) : 8'd0),
-	.sel(sel), .keys(kbd_keys), .tape_in(tape_in), .kempston(kbd_kempston),
-	.m_req(m_req), .m_we(m_we), .m_addr(m_addr), .m_din(m_din), .m_q(m_q),
-	.rom_we(rom_we), .rom_wa(ld_addr_mcu[14:0]), .rom_wd(ld_data_mcu),
-	.beeper(m_beeper), .mic(m_mic), .v_m(v_m), .v_border(v_border), .v_scr7(v_scr7),
-	.ay_we(ay_we), .ay_wa(ay_wa), .ay_wd(ay_wd), .ay_ra(ay_ra), .ay_rd(ay_rd), .late(m_late),
-	.dbg_pc(dbg_pc), .dbg_7ffd(dbg_7ffd), .dbg_ev(dbg_ev)
+// the two engines: machines 0..7 (BASE 0: the first MB of the SRAM) and 8..15 (BASE 1)
+wire [1:0] e_req, e_we, e_scr7, e_ayw;
+wire [43:0] e_addr;
+wire [15:0] e_din, e_aywd, e_ayrd;
+wire [5:0] e_vb;
+wire [7:0] e_aywa;
+wire [31:0] e_pc;
+wire [11:0] e_7ffd, e_ev;
+wire a_rv, a_re;                     // a byte of a read from sram_arb: its engine, machine
+wire [2:0] a_rm;
+wire [7:0] a_rd;
+wire [3:0] v_m;
+
+genvar ge;
+generate
+	for (ge = 0; ge < 2; ge = ge + 1) begin : g_eng
+		zx_oct #(.BASE(ge)) eng (
+			.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(m_reset[ge*8 +: 8]),
+			.nmi((sw_nmi && sel[3] == ge) ? (8'd1 << sm) : 8'd0),
+			.sel_en(sel[3] == ge), .sel(sm), .keys(kbd_keys), .tape_in(tape_in), .kempston(kbd_kempston),
+			.m_req(e_req[ge]), .m_we(e_we[ge]), .m_addr(e_addr[ge*22 +: 22]), .m_din(e_din[ge*8 +: 8]),
+			.m_rv(a_rv && a_re == ge), .m_rm(a_rm), .m_rd(a_rd),
+			.rom_we(rom_we), .rom_wa(ld_addr_mcu[14:0]), .rom_wd(ld_data_mcu),
+			.beeper(m_beeper[ge*8 +: 8]), .mic(m_mic[ge*8 +: 8]),
+			.v_m(v_m[2:0]), .v_border(e_vb[ge*3 +: 3]), .v_scr7(e_scr7[ge]),
+			.ay_we(e_ayw[ge]), .ay_wa(e_aywa[ge*4 +: 4]), .ay_wd(e_aywd[ge*8 +: 8]), .ay_ra(ay_ra),
+			.ay_rd(e_ayrd[ge*8 +: 8]), .late(m_late[ge*8 +: 8]),
+			.dbg_pc(e_pc[ge*16 +: 16]), .dbg_7ffd(e_7ffd[ge*6 +: 6]), .dbg_ev(e_ev[ge*6 +: 6])
+		);
+	end
+endgenerate
+
+// the context read port of the engine of v_m, the AY and the debug of the engine of the selected machine
+assign v_border = v_m[3] ? e_vb[5:3] : e_vb[2:0];
+assign v_scr7 = v_m[3] ? e_scr7[1] : e_scr7[0];
+assign ay_we = sel[3] ? e_ayw[1] : e_ayw[0];
+assign ay_wa = sel[3] ? e_aywa[7:4] : e_aywa[3:0];
+assign ay_wd = sel[3] ? e_aywd[15:8] : e_aywd[7:0];
+assign ay_rd = sel[3] ? e_ayrd[15:8] : e_ayrd[7:0];
+assign dbg_pc = sel[3] ? e_pc[31:16] : e_pc[15:0];
+assign dbg_7ffd = sel[3] ? e_7ffd[11:6] : e_7ffd[5:0];
+assign dbg_ev = sel[3] ? e_ev[11:6] : e_ev[5:0];
+
+wire a_req, a_we;
+wire [21:0] a_addr;
+wire [7:0] a_din;
+sram_arb arb(
+	.clk(clk_bus),
+	.e_req(e_req), .e_we(e_we), .e_addr(e_addr), .e_din(e_din),
+	.c_req(a_req), .c_we(a_we), .c_addr(a_addr), .c_din(a_din), .q(m_q),
+	.rv(a_rv), .re(a_re), .rm(a_rm), .rd(a_rd)
 );
 
 wire v_req, v_ack, s_req, w_req;
 wire [20:0] v_addr, s_addr, w_addr;
 wire [3:0] w_m;
-// the video port and the context read port of zx_oct: the full screen reader or the wall reader
+// the video port and the context read port of the engines: the full screen reader or the wall reader
 assign v_req = show_full ? s_req : w_req;
 assign v_addr = show_full ? s_addr : w_addr;
-wire [2:0] v_m = show_full ? sel : w_m[2:0];
+assign v_m = show_full ? sel : w_m;
 
 // the self test of the SRAM (bring-up): after the start of the core and at Reset All (OSD, Menu+F12, button 1), the
 // machines in reset meanwhile
@@ -341,8 +382,8 @@ sram_test #(.AW(MEMTEST_AW)) mtest(
 
 sram_ctrl sram(
 	.clk_bus(clk_bus), .clk_sys(clk_sys),
-	.c_req(mt_active ? mt_req : m_req), .c_we(mt_active ? mt_we : m_we), .c_addr(mt_active ? mt_addr : m_addr),
-	.c_din(mt_active ? mt_din : m_din),
+	.c_req(mt_active ? mt_req : a_req), .c_we(mt_active ? mt_we : a_we), .c_addr(mt_active ? mt_addr : a_addr),
+	.c_din(mt_active ? mt_din : a_din),
 	.v_req(v_req), .v_addr(v_addr), .v_ack(v_ack), .q(m_q),
 	.MA(MA), .MD(MD), .MRD_N(MRD_N), .MWR_N(MWR_N)
 );
@@ -367,7 +408,7 @@ reg [1:0] dg_rd = 2'b00, dg_v = 2'b00, dg_cap = 2'b00;
 reg dg_arm = 1'b0;
 
 always @(posedge clk_bus) begin
-	dg_rd <= {dg_rd[0], m_req & ~m_we};
+	dg_rd <= {dg_rd[0], a_req & ~a_we};
 	dg_v <= {dg_v[0], v_ack};
 	dg_cap <= {dg_cap[0], 1'b0};
 	if (ld_active) dg_ld <= 1'b1;
@@ -376,15 +417,15 @@ always @(posedge clk_bus) begin
 		dg_romcnt <= dg_romcnt + 1'd1;
 		if (ld_data_mcu != 8'd0) dg_romnz <= 1'b1;
 	end
-	if (m_req && m_we) dg_wr <= 1'b1;
+	if (a_req && a_we) dg_wr <= 1'b1;
 	if (dg_rd[1] && m_q != 16'd0) dg_rdnz <= 1'b1;
 	if (dg_v[1] && m_q != 16'd0) dg_vnz <= 1'b1;
 	if (|m_late) dg_late <= 1'b1;
 	if (ce7 && hc == 9'd0 && vc == 9'd0)
 		dg_arm <= 1'b1;
-	else if (dg_arm && m_req && !m_we && m_addr[19:17] == sel) begin
+	else if (dg_arm && a_req && !a_we && a_addr[20:17] == sel) begin
 		dg_arm <= 1'b0;
-		dg_addr <= m_addr[16:1];
+		dg_addr <= a_addr[16:1];
 		dg_cap[0] <= 1'b1;
 	end
 	if (dg_cap[1])
@@ -400,16 +441,38 @@ wire [95:0] diag = {
 	dbg_7ffd, v_border, dg_rdnz, dbg_ev, dg_pc, mt_first[15:0], mt_bad,
 	mt_done, mt_ok, dg_romcnt == 16'h8000, 8'd0, mt_first[20:16],
 	locked_p, dg_ld, dg_rom, dg_romnz, ~ld_hold, ~mcu_busy, ~m_reset[sel], dg_wr,
-	dg_rdnz, dg_vnz, v_border != 3'd0, ~dg_late, frame[4], sel
+	dg_rdnz, dg_vnz, v_border != 3'd0, ~dg_late, frame[4], sm
 };
 
 // ---------------------------------------------------------------------------------------------
 // video: the selected machine full screen
 
+// the raster of the selected machine: machine m of an engine runs m clocks after machine 0 (its CPU in slot m, its INT taken in
+// slot 0 as for all), so its picture is exact on the raster of zx_timing delayed by m clocks
+reg [7:1] rd_ce7 = 7'd0, rd_fl = 7'd0;
+reg [8:0] rd_hc [1:7];
+reg [8:0] rd_vc [1:7];
+integer ri;
+initial for (ri = 1; ri < 8; ri = ri + 1) begin rd_hc[ri] = 9'd0; rd_vc[ri] = 9'd0; end
+always @(posedge clk_bus) begin
+	rd_ce7 <= {rd_ce7[6:1], ce7};
+	rd_fl <= {rd_fl[6:1], frame[4]};
+	rd_hc[1] <= hc;
+	rd_vc[1] <= vc;
+	for (ri = 2; ri < 8; ri = ri + 1) begin
+		rd_hc[ri] <= rd_hc[ri - 1];
+		rd_vc[ri] <= rd_vc[ri - 1];
+	end
+end
+wire s_ce7 = (sm == 3'd0) ? ce7 : rd_ce7[sm];
+wire [8:0] s_hc = (sm == 3'd0) ? hc : rd_hc[sm];
+wire [8:0] s_vc = (sm == 3'd0) ? vc : rd_vc[sm];
+wire s_fl = (sm == 3'd0) ? frame[4] : rd_fl[sm];
+
 wire [3:0] pix;
 
-zx_scr #(.BASE(2'd0)) scr(
-	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .flash(frame[4]),
+zx_scr scr(
+	.clk(clk_bus), .ce7(s_ce7), .hc(s_hc), .vc(s_vc), .flash(s_fl),
 	.m(sel), .scr7(v_scr7), .border(v_border), .diag_en(sw_diag), .diag(diag),
 	.v_req(s_req), .v_addr(s_addr), .v_ack(v_ack & show_full), .q(m_q),
 	.pix(pix)
@@ -420,7 +483,7 @@ wire [6:0] wb_addr;
 wire [31:0] wb_data;
 wire [23:0] w_brd;
 
-wall_fetch #(.ROWS(2)) wall(
+wall_fetch #(.ROWS(4)) wall(
 	.clk(clk_bus), .en(~show_full), .ce7(ce7), .hc(hc), .vc(vc),
 	.v_m(w_m), .v_border(v_border), .v_scr7(v_scr7),
 	.v_req(w_req), .v_addr(w_addr), .v_ack(v_ack & ~show_full), .q(m_q),
@@ -430,17 +493,18 @@ wall_fetch #(.ROWS(2)) wall(
 wire [7:0] vo_r, vo_g, vo_b;
 wire vo_hs, vo_vs, vo_de, hs_neg, vs_neg;
 
-vga_out #(.ROWS(2)) vga(
-	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .pix(pix),
+vga_out #(.ROWS(4)) vga(
+	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .w_ce7(s_ce7), .w_hc(s_hc), .w_vc(s_vc), .pix(pix),
 	.mode_i(sw_video), .stripes_i(sw_stripes),
-	.wall_i(~show_full), .sel_i({1'b0, sel}), .flash_i(frame[4]),
+	.wall_i(~show_full), .sel_i(sel), .flash_i(frame[4]),
 	.wb_we(wb_we), .wb_addr(wb_addr), .wb_data(wb_data), .brd_i(w_brd),
 	.pclk(pclk),
 	.r(vo_r), .g(vo_g), .b(vo_b), .hs(vo_hs), .vs(vo_vs), .de(vo_de), .hs_neg(hs_neg), .vs_neg(vs_neg)
 );
 
 // the bitmap OSD of link v2, centred on de; it takes high active syncs and delays everything by 2 clocks
-wire ov_hs, ov_vs;
+wire ov_hs, ov_vs, ov_de;
+wire [23:0] ov_rgb;
 kg_l2_osd_overlay overlay(
 	.wclk(clk_bus),
 	.osd_wr(osd_wr), .osd_waddr(osd_waddr), .osd_wdata(osd_wdata), .osd_en(osd_en),
@@ -449,18 +513,24 @@ kg_l2_osd_overlay overlay(
 	.icon_on(8'd0), .icon_act(8'd0),
 	.clk(pclk),
 	.rgb_i({vo_r, vo_g, vo_b}), .hs_i(vo_hs), .vs_i(vo_vs), .de_i(vo_de),
-	.rgb_o({video_r, video_g, video_b}), .hs_o(ov_hs), .vs_o(ov_vs), .de_o(video_de)
+	.rgb_o(ov_rgb), .hs_o(ov_hs), .vs_o(ov_vs), .de_o(ov_de)
 );
 
-assign video_hs = ov_hs ^ hs_neg;
-assign video_vs = ov_vs ^ vs_neg;
+// the output registers (the IOB of the pins): the blend of the overlay gets a whole clock in the fabric (with its
+// output register in the IOB the path to the pin did not always meet the 13.6 ns)
+always @(posedge pclk) begin
+	{video_r, video_g, video_b} <= ov_rgb;
+	video_hs <= ov_hs ^ hs_neg;
+	video_vs <= ov_vs ^ vs_neg;
+	video_de <= ov_de;
+end
 
 // ---------------------------------------------------------------------------------------------
 // sound: beeper, MIC, tape input and the AY of the selected machine
 
 // the AY: the writes of the selected machine; when sel changes its 16 registers are loaded from the copy in zx_oct
 // (the writes of zx_oct go first, the loading waits for a clock without one)
-reg [2:0] ay_sel = 3'd0;
+reg [3:0] ay_sel = 4'd0;
 reg [4:0] ay_ld = 5'd16;          // the register being loaded, 16: none
 always @(posedge clk_bus)
 	if (sel != ay_sel) begin

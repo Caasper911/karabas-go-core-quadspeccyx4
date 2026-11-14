@@ -19,7 +19,8 @@ same change as the code they describe.
 
 ## State
 
-Milestones 1 (the CPU) and 2 (eight machines on SRAM, in simulation) done; milestone 3: the first core for the Go
+Milestones 1 (the CPU), 2 (eight machines on SRAM), 3 (the first Go core), 4 (the wall) and 6 (16 machines) done;
+milestone 5 (Mini / Mini G) open. Milestone 3: the first core for the Go
 (`src/speccywall.kg`: eight machines, the selected one full screen, 720 x 576 or 1280 x 800) works on the Go
 (2026-11-14; the user tests on the board).
 
@@ -32,6 +33,11 @@ Milestones 1 (the CPU) and 2 (eight machines on SRAM, in simulation) done; miles
   from the SRAM, pairs of characters through the video port), `rtl/video/vga_out.v` (pclk = 21/8 clk_bus from a second
   PLL, 73.6 MHz, locked to the Pentagon frame, two rasters), `rtl/hid/zx_kbd.v` / `rtl/sound/ay_psg.v` from QuadSpeccy
   (zx_kbd: sel 4 bits, Win+1..8, arrows on 4 columns x ROWS).
+- Milestone 6 (16 machines) works on the Go (2026-11-14): two zx_oct (`g_eng`, BASE 0 / 1, machine m = engine m[3]),
+  `rtl/mem/sram_arb.v` (a queue per engine, one SRAM access a clock, returns {engine, machine, byte}); zx_oct takes
+  SRAM data with a variable latency (`m_rv`/`m_rm`/`m_rd` into context `c_ramd`; ROM fixed into `c_romd`;
+  `c_fromrom` chooses). Shift+Win+1..8 = machines 9..16. 1885 slices (50 %), clk_bus 24.0 ns, pclk 13.19 of 13.59
+  (the video outputs have their own register after the OSD overlay: the overlay blend into an IOB register failed).
 - Milestone 4 (the wall): `rtl/video/wall_fetch.v` reads before every VGA row the Spectrum line of the 4 machines of
   the cell row (128 words, pipelined on the video port) into the row buffer of `vga_out` (RAMB8, clk_bus / pclk);
   Win+` wall / full screen; 1280 x 800 is the default video now.

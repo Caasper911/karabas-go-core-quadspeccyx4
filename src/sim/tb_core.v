@@ -42,8 +42,10 @@ integer i, n = 0;
 initial begin
 	$readmemh("roms.hex", romw);
 	for (i = 0; i < 16384; i = i + 1) begin
-		dut.eng.rom[2*i] = romw[i][7:0];
-		dut.eng.rom[2*i+1] = romw[i][15:8];
+		dut.g_eng[0].eng.rom[2*i] = romw[i][7:0];
+		dut.g_eng[1].eng.rom[2*i] = romw[i][7:0];
+		dut.g_eng[0].eng.rom[2*i+1] = romw[i][15:8];
+		dut.g_eng[1].eng.rom[2*i+1] = romw[i][15:8];
 	end
 	for (i = 0; i < (1 << 21); i = i + 1)
 		model.mem[i] = 16'h0000;

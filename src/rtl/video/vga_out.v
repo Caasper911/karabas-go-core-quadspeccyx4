@@ -18,8 +18,8 @@
            pixels (56 + 256 + 56, 48 + 192 + 48) = 1932 pclk x 576; hsync 168 (front 42, back 210), vsync 4 lines,
            both low.
 
- The lines: pix (zx_scr.v, the colour of hc / vc two ce7 before) goes into a ring of 4 line buffers (vc[1:0]) on
- clk_bus; VGA row py shows Spectrum line py / 3 (py / 2) while the Spectrum writes line py / 3 + 2: the counters of
+ The lines: pix (zx_scr.v, the colour of w_hc / w_vc two w_ce7 before: the raster of the machine shown, up to 7
+ clocks after that of zx_timing) goes into a ring of 4 line buffers (w_vc[1:0]) on clk_bus; VGA row py shows Spectrum line py / 3 (py / 2) while the Spectrum writes line py / 3 + 2: the counters of
  pclk are set to row 0 when the Spectrum is at line 2, pixel 0 (a toggle through three registers; set again only
  when they are more than 7 clocks off, so the lock does not jitter by the clock of the synchroniser).
 
@@ -39,9 +39,12 @@ module vga_out #(
 ) (
 	// clk_bus side
 	input wire clk,
-	input wire ce7,
+	input wire ce7,                     // the raster of zx_timing: the frame mark
 	input wire [8:0] hc,
 	input wire [8:0] vc,
+	input wire w_ce7,                   // the raster of the machine shown full screen (pix): the line buffer
+	input wire [8:0] w_hc,
+	input wire [8:0] w_vc,
 	input wire [3:0] pix,
 	input wire mode_i,                  // 1: 1280 x 800
 	input wire stripes_i,
@@ -72,22 +75,23 @@ reg [8:0] hd1 = 9'd0, hd2 = 9'd0;
 reg [1:0] vd1 = 2'd0, vd2 = 2'd0;
 reg fe_t = 1'b0;
 
-always @(posedge clk)
-	if (ce7) begin
-		hd1 <= hc;
+always @(posedge clk) begin
+	if (w_ce7) begin
+		hd1 <= w_hc;
 		hd2 <= hd1;
-		vd1 <= vc[1:0];
+		vd1 <= w_vc[1:0];
 		vd2 <= vd1;
-		if (vc == 9'd2 && hc == 9'd0)
-			fe_t <= ~fe_t;
 	end
+	if (ce7 && vc == 9'd2 && hc == 9'd0)
+		fe_t <= ~fe_t;
+end
 
 wire [3:0] lb_q;
 reg [10:0] lb_ra = 11'd0;
 
 kg_sdpram #(.DW(4), .AW(11)) linebuf (
 	.clka(clk),
-	.wea(ce7),
+	.wea(w_ce7),
 	.addra({vd2, hd2}),
 	.dina(pix),
 	.clkb(pclk),

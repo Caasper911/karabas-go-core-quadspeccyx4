@@ -14,8 +14,8 @@
  request a clock, every machine at most one per 3 T-states) and its word is in q two clocks after v_ack, so a pair
  takes under 24 clocks of the 64 it has.
 
- The raster is that of zx_timing (machine 0): machine m runs m clocks later, the picture is that much early (the
- exact raster of the machine comes with the wall, milestone 4).
+ The raster is that of machine m: zx_timing delayed by m clocks (speccywall.v), so border effects and multicolour are
+ exact.
 
  pix is the colour of the pixel hc / vc of two ce7 before (as pentagon.v), {bright, G, R, B}.
 
@@ -24,16 +24,14 @@
  on the left: 1 bright green, 0 bright red.
 */
 
-module zx_scr #(
-	parameter [1:0] BASE = 2'd0         // the MB of SRAM of the engine
-) (
+module zx_scr (
 	input wire clk,
 	input wire ce7,
 	input wire [8:0] hc,
 	input wire [8:0] vc,
 	input wire flash,                   // frame[4] of zx_timing
 
-	input wire [2:0] m,
+	input wire [3:0] m,                 // the machine: bit 3 the engine (the MB of SRAM), 2..0 the machine in it
 	input wire scr7,                    // #7FFD bit 3 of machine m
 	input wire [2:0] border,
 	input wire diag_en,
@@ -67,7 +65,7 @@ always @(posedge clk) begin
 		case (fst)
 			3'd0: if (!fj[4] && fetch_ok) begin
 				// byte offsets: bitmap {tl[7:6], tl[2:0], tl[5:3], 2j}, attribute {110, tl[7:3], 2j}
-				v_addr <= {BASE, m, scr7 ? 3'd7 : 3'd5, 1'b0, tl[7:6], tl[2:0], tl[5:3], fj[3:0]};
+				v_addr <= {1'b0, m, scr7 ? 3'd7 : 3'd5, 1'b0, tl[7:6], tl[2:0], tl[5:3], fj[3:0]};
 				aw <= {1'b0, 3'b110, tl[7:3], fj[3:0]};
 				v_req <= 1'b1;
 				fst <= 3'd1;
@@ -79,7 +77,7 @@ always @(posedge clk) begin
 			3'd2: fst <= 3'd3;
 			3'd3: begin
 				if (fj[0]) bmp1 <= q; else bmp0 <= q;
-				v_addr <= {BASE, m, scr7 ? 3'd7 : 3'd5, aw};
+				v_addr <= {1'b0, m, scr7 ? 3'd7 : 3'd5, aw};
 				v_req <= 1'b1;
 				fst <= 3'd4;
 			end

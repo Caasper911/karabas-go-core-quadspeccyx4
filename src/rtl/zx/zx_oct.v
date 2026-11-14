@@ -12,11 +12,13 @@
    slot k + 1  the bus logic of machine k: the new outputs of CPU k (second read port of tv80o_core, pth), the
                decode, the memory request, the port writes, the data the CPU will take (ports, FF)
 
- Memory. One request a clock at most (only machine slot - 1 asks), so the requests of the eight machines never meet:
- no queue, no WAIT. A read made at the start of T1 (bus slot) has its data 3 clocks later, the CPU takes it at the end
- of T2, 15 clocks after; a write is made at the start of T2. The ROM (128 editor and 48 BASIC, 32 KB) is a block RAM
- shared by the machines (rom_we: the loader), the RAM of machine m is 128 KB of SRAM at byte {BASE, m, page, offset}
- (sram_ctrl.v, latency 3 as the ROM pipeline here, so one return a clock: the context mdat of the machine).
+ Memory. One request a clock at most (only machine slot - 1 asks): m_req for one clock, a read at the start of T1 (bus
+ slot), a write at the start of T2; the CPU takes the data of a read at the end of T2, 15 clocks after the request,
+ so no WAIT: the RAM of machine m is 128 KB of SRAM at byte {BASE, m, page, offset}, its data comes back whenever the
+ SRAM arbiter (sram_arb.v, a queue for two engines) has it: m_rv with the machine m_rm and the byte m_rd (the context
+ ramd of the machine; late if it was not there in time). The ROM (128 editor and 48 BASIC, 32 KB) is a block RAM of
+ the engine (rom_we: the loader), its data 3 clocks after the bus slot (the context romd); fromrom of the machine
+ tells which of the two the CPU takes (the last read, also in cycles without a read).
 
  Ports as Pentagon 128: #FE (A0 = 0: border, MIC, beeper; read: keyboard and tape of the selected machine sel), #7FFD
  (A15 = 0, A1 = 0: page, screen, ROM, lock), AY #FFFD / #BFFD (A15 = 1, A1 = 0: a copy of the 16 registers per
@@ -38,18 +40,21 @@ module zx_oct #(
 	input wire [7:0] reset,              // machine m: bit m
 	input wire [7:0] nmi,                // NMI while high
 
-	// the selected machine: keyboard, tape, Kempston joystick
+	// the selected machine (sel_en: it is in this engine): keyboard, tape, Kempston joystick, the AY
+	input wire sel_en,
 	input wire [2:0] sel,
 	input wire [39:0] keys,              // pressed keys: bit row * 5 + column, row n = A(8+n) low
 	input wire tape_in,
 	input wire [7:0] kempston,
 
-	// SRAM (sram_ctrl): a request is high for one clock, its read data m_q 3 clocks after that clock
+	// SRAM (sram_arb): a request is high for one clock; the byte of a read comes later (m_rv one clock: machine m_rm)
 	output reg m_req = 1'b0,
 	output reg m_we = 1'b0,
 	output reg [21:0] m_addr = 22'd0,    // byte
 	output reg [7:0] m_din = 8'd0,
-	input wire [15:0] m_q,               // the word of m_addr[21:1]
+	input wire m_rv,
+	input wire [2:0] m_rm,
+	input wire [7:0] m_rd,
 
 	// ROM loader (32 KB: 0..3FFF 128 editor, 4000..7FFF 48 BASIC)
 	input wire rom_we,
@@ -92,11 +97,13 @@ reg [2:0] c_border [0:7];
 reg c_wrdone [0:7];               // the write / port write of this M-cycle is made
 reg c_rd [0:7];                   // this M-cycle reads memory
 reg c_t2 [0:7];                   // the CPU is in T2: it takes its data at its next cen
-reg c_src [0:7];                  // its data: 1 c_pdat (port, FF), 0 c_mdat (memory)
+reg c_src [0:7];                  // its data: 1 c_pdat (port, FF), 0 the memory (c_fromrom ? c_romd : c_ramd)
 reg [7:0] c_pdat [0:7];
-reg c_iss [0:7];                  // toggles: a read made (bus logic) / its data written (return): pending = differ
+reg c_iss [0:7];                  // toggles: a read of the SRAM made (bus logic) / its data written: pending = differ
 reg c_ret [0:7];
-reg [7:0] c_mdat [0:7];
+reg [7:0] c_romd [0:7];           // the byte of the last read of the ROM
+reg [7:0] c_ramd [0:7];           // the byte of the last read of the SRAM
+reg c_fromrom [0:7];              // the last read was of the ROM
 reg [7:0] c_di [0:7];             // DI of the CPU (T80se: the data of T2 kept)
 reg [3:0] c_ayreg [0:7];
 reg c_ayrv [0:7];                 // the register select had 0 in bits 7..4 (else the AY is not addressed)
@@ -105,7 +112,7 @@ reg [7:0] ay_ram [0:127];         // {machine, register}
 initial begin
 	for (i = 0; i < 8; i = i + 1) begin
 		c_7ffd[i] = 6'd0; c_border[i] = 3'd0; c_wrdone[i] = 1'b0; c_rd[i] = 1'b0; c_t2[i] = 1'b0; c_src[i] = 1'b0;
-		c_pdat[i] = 8'hFF; c_iss[i] = 1'b0; c_ret[i] = 1'b0; c_mdat[i] = 8'hFF; c_di[i] = 8'hFF; c_ayreg[i] = 4'd0;
+		c_pdat[i] = 8'hFF; c_iss[i] = 1'b0; c_ret[i] = 1'b0; c_romd[i] = 8'hFF; c_ramd[i] = 8'hFF; c_fromrom[i] = 1'b1; c_di[i] = 8'hFF; c_ayreg[i] = 4'd0;
 		c_ayrv[i] = 1'b1; c_ayclr[i] = 4'd0;
 	end
 	for (i = 0; i < 128; i = i + 1) ay_ram[i] = 8'd0;
@@ -126,7 +133,7 @@ always @(posedge clk)
 		int_t <= int_n;
 wire c_int_n = (slot == 3'd0) ? int_n : int_t;
 
-wire [7:0] c_dinst = c_src[th] ? c_pdat[th] : c_mdat[th];
+wire [7:0] c_dinst = c_src[th] ? c_pdat[th] : c_fromrom[th] ? c_romd[th] : c_ramd[th];
 
 wire [15:0] p_A;
 wire [7:0] p_dout;
@@ -157,7 +164,7 @@ always @(posedge clk) begin
 		c_di[th] <= c_dinst;
 	if (reset[th])
 		late[th] <= 1'b0;
-	else if (c_t2[th] && c_rd[th] && !c_src[th] && (c_iss[th] != c_ret[th]))
+	else if (c_t2[th] && c_rd[th] && !c_src[th] && !c_fromrom[th] && (c_iss[th] != c_ret[th]))
 		late[th] <= 1'b1;
 end
 
@@ -175,7 +182,7 @@ wire [5:0] b7ffd = c_7ffd[b];
 wire is_rom = (p_A[15:14] == 2'b00);
 wire [2:0] page = (p_A[15:14] == 2'b01) ? 3'd5 : (p_A[15:14] == 2'b10) ? 3'd2 : b7ffd[2:0];
 wire [21:0] ram_addr = {BASE, b, page, p_A[13:0]};
-wire is_sel = (b == sel);
+wire is_sel = sel_en && (b == sel);
 
 // ports
 wire ay_port = p_A[15] & ~p_A[1];
@@ -223,7 +230,7 @@ end
 
 // the next contexts of machine b (written in its bus slot, one write of each a clock)
 reg [5:0] n_7ffd;
-reg n_wrdone, n_rd, n_t2, n_src, n_iss, n_ayrv, n_ay_we;
+reg n_wrdone, n_rd, n_t2, n_src, n_iss, n_ayrv, n_ay_we, n_fromrom;
 reg [7:0] n_pdat, n_ay_d;
 reg [2:0] n_border;
 reg [3:0] n_ayreg, n_ayclr;
@@ -236,6 +243,7 @@ always @* begin
 	n_src = 1'b0;
 	n_pdat = c_pdat[b];
 	n_iss = c_iss[b];
+	n_fromrom = c_fromrom[b];
 	n_border = c_border[b];
 	n_ayreg = c_ayreg[b];
 	n_ayrv = c_ayrv[b];
@@ -271,8 +279,11 @@ always @* begin
 		if (t1) begin
 			n_wrdone = 1'b0;
 			n_rd = mem_rd;
-			if (mem_rd)
-				n_iss = ~c_iss[b];
+			if (mem_rd) begin
+				n_fromrom = is_rom;
+				if (!is_rom)
+					n_iss = ~c_iss[b];
+			end
 		end
 		if (t3)
 			n_rd = 1'b0;
@@ -298,11 +309,9 @@ always @* begin
 	end
 end
 
-// the returns: the machine, ROM or SRAM, the byte of the word, three clocks after the bus slot
+// the returns of the ROM: the machine, three clocks after the bus slot
 reg [2:0] r_m1 = 3'd0, r_m2 = 3'd0, r_m3 = 3'd0;
 reg r_v1 = 1'b0, r_v2 = 1'b0, r_v3 = 1'b0;
-reg r_rom1 = 1'b0, r_rom2 = 1'b0, r_rom3 = 1'b0;
-reg r_hi1 = 1'b0, r_hi2 = 1'b0, r_hi3 = 1'b0;
 
 always @(posedge clk) begin
 	m_req <= 1'b0;
@@ -311,10 +320,8 @@ always @(posedge clk) begin
 
 	r_v1 <= 1'b0;
 	r_m1 <= b;
-	r_rom1 <= 1'b0;
-	r_hi1 <= p_A[0];
-	{r_v2, r_m2, r_rom2, r_hi2} <= {r_v1, r_m1, r_rom1, r_hi1};
-	{r_v3, r_m3, r_rom3, r_hi3} <= {r_v2, r_m2, r_rom2, r_hi2};
+	{r_v2, r_m2} <= {r_v1, r_m1};
+	{r_v3, r_m3} <= {r_v2, r_m2};
 	rom_q2 <= rom_q1;
 
 	// the contexts of machine b: one write of each a clock (n_*, below). XST 14.7 got a context written in both
@@ -327,6 +334,7 @@ always @(posedge clk) begin
 	c_src[b] <= n_src;
 	c_pdat[b] <= n_pdat;
 	c_iss[b] <= n_iss;
+	c_fromrom[b] <= n_fromrom;
 	c_border[b] <= n_border;
 	c_ayreg[b] <= n_ayreg;
 	c_ayrv[b] <= n_ayrv;
@@ -359,8 +367,7 @@ always @(posedge clk) begin
 
 		// T1: the read
 		if (t1 && mem_rd) begin
-			r_v1 <= 1'b1;
-			r_rom1 <= is_rom;
+			r_v1 <= is_rom;
 			rom_ra <= {b7ffd[4], p_A[13:0]};
 			if (!is_rom) begin
 				m_req <= 1'b1;
@@ -383,10 +390,12 @@ always @(posedge clk) begin
 		end
 	end
 
-	// the return of the read of 3 clocks before
-	if (r_v3) begin
-		c_ret[r_m3] <= ~c_ret[r_m3];
-		c_mdat[r_m3] <= r_rom3 ? rom_q2 : r_hi3 ? m_q[15:8] : m_q[7:0];
+	// the returns: the ROM read of 3 clocks before, a byte of the SRAM
+	if (r_v3)
+		c_romd[r_m3] <= rom_q2;
+	if (m_rv) begin
+		c_ret[m_rm] <= ~c_ret[m_rm];
+		c_ramd[m_rm] <= m_rd;
 	end
 end
 

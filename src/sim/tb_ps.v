@@ -6,7 +6,7 @@
 
  zx_oct after synthesis (XST, netgen: zx_oct_ps) against the RTL zx_oct, clock for clock: the same inputs (the ROM 128
  loaded through the loader port, the machines out of reset together, then INT of the raster), each engine on its own
- sram_ctrl and SRAM model. Every output of both compared every clock. Prints "tb_ps: <n> errors".
+ sram_arb (the second input idle), sram_ctrl and SRAM model. Every output of both compared every clock. Prints "tb_ps: <n> errors".
 */
 
 `ifndef TRACE
@@ -69,6 +69,9 @@ wire [1:0] e_req, e_we;
 wire [43:0] e_addr;
 wire [15:0] e_din;
 wire [31:0] e_q;
+wire [1:0] e_rv;
+wire [5:0] e_rm;
+wire [15:0] e_rd;
 wire [15:0] e_beeper, e_mic, e_late;
 wire [5:0] e_vb;
 wire [1:0] e_scr7, e_ayw;
@@ -79,8 +82,9 @@ wire [11:0] e_7ffd, e_ev;
 
 zx_oct rtl (
 	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset), .nmi(8'd0),
-	.sel(sel), .keys(40'd0), .tape_in(1'b0), .kempston(8'd0),
-	.m_req(e_req[0]), .m_we(e_we[0]), .m_addr(e_addr[21:0]), .m_din(e_din[7:0]), .m_q(e_q[15:0]),
+	.sel_en(1'b1), .sel(sel), .keys(40'd0), .tape_in(1'b0), .kempston(8'd0),
+	.m_req(e_req[0]), .m_we(e_we[0]), .m_addr(e_addr[21:0]), .m_din(e_din[7:0]),
+	.m_rv(e_rv[0]), .m_rm(e_rm[2:0]), .m_rd(e_rd[7:0]),
 	.rom_we(rom_we), .rom_wa(rom_wa), .rom_wd(rom_wd),
 	.beeper(e_beeper[7:0]), .mic(e_mic[7:0]), .v_m(sel), .v_border(e_vb[2:0]), .v_scr7(e_scr7[0]),
 	.ay_we(e_ayw[0]), .ay_wa(e_aywa[3:0]), .ay_wd(e_aywd[7:0]), .ay_ra(slot ^ 4'd5), .ay_rd(e_ayrd[7:0]),
@@ -89,8 +93,9 @@ zx_oct rtl (
 
 zx_oct_ps syn (
 	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset), .nmi(8'd0),
-	.sel(sel), .keys(40'd0), .tape_in(1'b0), .kempston(8'd0),
-	.m_req(e_req[1]), .m_we(e_we[1]), .m_addr(e_addr[43:22]), .m_din(e_din[15:8]), .m_q(e_q[31:16]),
+	.sel_en(1'b1), .sel(sel), .keys(40'd0), .tape_in(1'b0), .kempston(8'd0),
+	.m_req(e_req[1]), .m_we(e_we[1]), .m_addr(e_addr[43:22]), .m_din(e_din[15:8]),
+	.m_rv(e_rv[1]), .m_rm(e_rm[5:3]), .m_rd(e_rd[15:8]),
 	.rom_we(rom_we), .rom_wa(rom_wa), .rom_wd(rom_wd),
 	.beeper(e_beeper[15:8]), .mic(e_mic[15:8]), .v_m(sel), .v_border(e_vb[5:3]), .v_scr7(e_scr7[1]),
 	.ay_we(e_ayw[1]), .ay_wa(e_aywa[7:4]), .ay_wd(e_aywd[15:8]), .ay_ra(slot ^ 4'd5), .ay_rd(e_ayrd[15:8]),
@@ -103,9 +108,19 @@ generate
 		wire [20:0] MA;
 		wire [15:0] MD;
 		wire [1:0] MRD_N, MWR_N;
+		wire c_req, c_we;
+		wire [21:0] c_addr;
+		wire [7:0] c_din;
+		sram_arb arb (
+			.clk(clk_bus),
+			.e_req({1'b0, e_req[e]}), .e_we({1'b0, e_we[e]}), .e_addr({22'd0, e_addr[e*22 +: 22]}),
+			.e_din({8'd0, e_din[e*8 +: 8]}),
+			.c_req(c_req), .c_we(c_we), .c_addr(c_addr), .c_din(c_din), .q(e_q[e*16 +: 16]),
+			.rv(e_rv[e]), .re(), .rm(e_rm[e*3 +: 3]), .rd(e_rd[e*8 +: 8])
+		);
 		sram_ctrl sram (
 			.clk_bus(clk_bus), .clk_sys(clk_sys),
-			.c_req(e_req[e]), .c_we(e_we[e]), .c_addr(e_addr[e*22 +: 22]), .c_din(e_din[e*8 +: 8]),
+			.c_req(c_req), .c_we(c_we), .c_addr(c_addr), .c_din(c_din),
 			.v_req(1'b0), .v_addr(21'd0), .v_ack(), .q(e_q[e*16 +: 16]),
 			.MA(MA), .MD(MD), .MRD_N(MRD_N), .MWR_N(MWR_N)
 		);

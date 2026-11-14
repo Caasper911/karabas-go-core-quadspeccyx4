@@ -8,7 +8,7 @@
  the ZX keyboard matrix and the Kempston joystick, for the machine that has the keyboard, and the
  hotkeys of the wall (from QuadSpeccy, with sel of 4 bits):
 
-   Win + 1..8   the keyboard goes to machine 0..7 (sel)
+   Win + 1..8   the keyboard goes to machine 0..7 (sel), with Shift to machine 8..15 (from ROWS 3 on)
    Win + arrows the machine next to the selected one in the grid of 4 columns (sel[1:0]) and ROWS rows (sel[3:2]),
                 no wrap
    Win + `/~    full screen of the selected machine on / off (full_tgl, one clock)
@@ -248,7 +248,7 @@ always @(posedge clk) begin
 		hk_num_prev <= hk_num_n;
 		hk_tilde_prev <= hk_tilde_n;
 		if (win && hk_num_n != 4'd0 && hk_num_n != hk_num_prev && hk_num_n <= ROWS * 4)
-			sel <= hk_num_n - 4'd1;
+			sel <= hk_num_n - 4'd1 + ((shift && ROWS > 2) ? 4'd8 : 4'd0);
 		if (win && hk_tilde_n && !hk_tilde_prev)
 			full_tgl <= 1'b1;
 		hk_arr_prev <= hk_arr_n;

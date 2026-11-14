@@ -37,6 +37,7 @@ verilog work "../../rtl/tv80/tv80o_core.v"
 verilog work "../../rtl/zx/zx_timing.v"
 verilog work "../../rtl/zx/zx_oct.v"
 verilog work "../../rtl/mem/sram_ctrl.v"
+verilog work "../../rtl/mem/sram_arb.v"
 verilog work "../sram_model.v"
 verilog work "../tb_wall.v"
 PRJ

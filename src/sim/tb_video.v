@@ -128,7 +128,7 @@ wall_fetch #(.ROWS(2)) wall (
 wire [7:0] r, g, b;
 wire hs, vs, de, hs_neg, vs_neg;
 vga_out vga (
-	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .pix(pix), .mode_i(`MODE != 0), .stripes_i(`STRIPES != 0),
+	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .w_ce7(ce7), .w_hc(hc), .w_vc(vc), .pix(pix), .mode_i(`MODE != 0), .stripes_i(`STRIPES != 0),
 	.wall_i(`WALL != 0), .sel_i(`SEL), .flash_i(frame[4]),
 	.wb_we(wb_we), .wb_addr(wb_addr), .wb_data(wb_data), .brd_i(brd),
 	.pclk(pclk), .r(r), .g(g), .b(b), .hs(hs), .vs(vs), .de(de), .hs_neg(hs_neg), .vs_neg(vs_neg)
