@@ -137,16 +137,25 @@ wire [4:0] osd_px, osd_ph;
 wire [3:0] osd_py;
 wire [5:0] osd_pw;
 
-// the OSD switches: 12 registers of 8 bits, switch n = softsw[n*8 +: 8]; SW_INIT the defaults of core.json
-wire [12*8-1:0] softsw;
+// the OSD switches: 13 registers of 8 bits, switch n = softsw[n*8 +: 8]; SW_INIT the defaults of core.json
+wire [13*8-1:0] softsw;
+
+// the file mounter, slot 0: the image of the SD cards of all machines (sd_host, below)
+wire [7:0] sdc_img_mounted;
+wire [63:0] sdc_img_size;
+wire sdc_rd, sdc_wr, sdc_busy, sdc_done, sdc_error, sdc_strobe;
+wire [31:0] sdc_sector;
+wire [8:0] sdc_byte_addr;
+wire [7:0] sdc_byte_in, sdc_byte_out;
 
 kg_mcu2 #(
 	.CAPS(16'h0010),             // bit 4: LD_READY (always ready: the ROM is written a byte a clock)
-	.SW_N(12),
-	.SW_INIT(96'h00_00_00_00_00_00_04_00_00_01_01_00),
+	.SW_N(13),
+	.SW_INIT(104'h01_00_00_00_00_00_00_04_00_00_01_01_00),
 	.CS_FILTER(3),
 	.ENABLE_OSD(1),
-	.ENABLE_IMG(0),
+	.ENABLE_IMG(1),                 // slot 0: the image of the SD cards (sd_host)
+	.IMG_OUT_LATENCY(3),
 	.ENABLE_FT(1),
 	.ENABLE_SD2(0)
 ) mcu (
@@ -180,11 +189,11 @@ kg_mcu2 #(
 	.OSD_FG(osd_fg), .OSD_BG(osd_bg), .OSD_ALPHA(osd_alpha),
 	.OSD_PX(osd_px), .OSD_PY(osd_py), .OSD_PW(osd_pw), .OSD_PH(osd_ph), .OSD_PLACE(osd_place), .OSD_ZOOM(osd_zoom),
 
-	.SDC_IMG_MOUNTED(), .SDC_IMG_SIZE(),
-	.SDC_RD(8'd0), .SDC_WR(8'd0), .SDC_SECTOR(32'd0),
-	.SDC_BUSY(), .SDC_DONE(), .SDC_ERROR(), .SDC_SLOT(),
-	.SDC_BYTE_IN_STROBE(), .SDC_BYTE_ADDR(), .SDC_BYTE_IN_DATA(),
-	.SDC_BYTE_OUT_DATA(8'd0),
+	.SDC_IMG_MOUNTED(sdc_img_mounted), .SDC_IMG_SIZE(sdc_img_size),
+	.SDC_RD({7'd0, sdc_rd}), .SDC_WR({7'd0, sdc_wr}), .SDC_SECTOR(sdc_sector),
+	.SDC_BUSY(sdc_busy), .SDC_DONE(sdc_done), .SDC_ERROR(sdc_error), .SDC_SLOT(),
+	.SDC_BYTE_IN_STROBE(sdc_strobe), .SDC_BYTE_ADDR(sdc_byte_addr), .SDC_BYTE_IN_DATA(sdc_byte_in),
+	.SDC_BYTE_OUT_DATA(sdc_byte_out),
 	.IMG_WP(), .IMG_PHYS_WR(), .IMG_PHYS(), .IMG_FLUSH(), .FDD_CHNG_WR(), .FDD_CHNG(),
 	.FDD_CHNG_REQ(1'b0), .FDD_CHNG_DS(2'd0),
 	.BK_MOUNT(1'b0), .BK_FLUSHED(1'b0), .BK_SLOT(3'd0), .BK_SIZE(32'd0), .BK_KIND(8'd0), .BK_RESULT(8'd0),
@@ -208,6 +217,7 @@ wire sw_reset = softsw[24];
 wire sw_reset_all = softsw[32];
 wire [2:0] sw_frame_col = softsw[42:40];
 wire sw_fade = softsw[88];              // Frame fade: 0 off, 1 on
+wire sw_divmmc = softsw[96];            // DivMMC: 0 off, 1 on (all machines)
 wire sw_tape_core = softsw[64];         // Tape in: 0 Board, 1 Core
 wire [3:0] sw_tape_out = softsw[75:72]; // Tape out: the machine
 wire sw_keys_all = softsw[80];          // Keys to: 0 Selected, 1 All (the wall only)
@@ -259,7 +269,24 @@ wire show_full = full | ~sw_video;
 
 wire ld_hold = (ld_active && ld_kind == 2'd0) | mcu_busy;
 wire mt_active;
-wire rst_all = areset | ld_hold | sw_reset_all | hw_btn[1] | mt_active;
+// the DivMMC RAM of every machine cleared after the start and after Reset All (as QuadSpeccy: ESXDOS boots on what
+// it finds there), a byte a clock (73 ms; the ROM loader and the self test first), the machines held meanwhile
+reg [20:0] dw_a = 21'd0;
+reg dw_on = 1'b0, dw_d = 1'b0;
+wire dw_trig = areset | sw_reset_all | hw_btn[1];
+wire dw_we;
+always @(posedge clk_bus) begin
+	dw_d <= dw_trig;
+	if (dw_d && !dw_trig) begin
+		dw_on <= 1'b1;
+		dw_a <= 21'd0;
+	end else if (dw_we) begin
+		dw_a <= dw_a + 1'd1;
+		if (dw_a == 21'h1EFFFF)                    // below the ROMs ({111111, ...})
+			dw_on <= 1'b0;
+	end
+end
+wire rst_all = areset | ld_hold | sw_reset_all | hw_btn[1] | mt_active | dw_on;
 wire rst_sel = sw_reset | hw_btn[0];
 reg [15:0] m_reset = 16'hFFFF;
 reg [7:0] rst_cnt = 8'hFF;
@@ -274,7 +301,9 @@ always @(posedge clk_bus)
 		m_reset <= 16'h0000;
 
 // the ROM: kind 0, the first 32 KB of the address space of the MCU
-wire rom_we = ld_wr_mcu && ld_kind == 2'd0 && ld_addr_mcu[31:15] == 17'd0;
+// the ROMs (core.json: 128 at 0, 48 at 4000, ESXDOS at 8000) go into the SRAM, {111111, address} (zx_oct), a byte a
+// clock while the loader holds the machines in reset
+wire rom_we = ld_wr_mcu && ld_kind == 2'd0 && ld_addr_mcu[31:16] == 16'd0 && ld_addr_mcu[15:13] < 3'd5;
 
 // ---------------------------------------------------------------------------------------------
 // the machines
@@ -321,7 +350,7 @@ endgenerate
 wire [1:0] e_req, e_we, e_scr7, e_ayw;
 wire [43:0] e_addr;
 wire [15:0] e_din, e_aywd, e_ayrd;
-wire [5:0] e_vb;
+wire [5:0] e_vb, e_m;
 wire [7:0] e_aywa;
 wire [31:0] e_pc;
 wire [11:0] e_7ffd, e_ev;
@@ -329,6 +358,22 @@ wire a_rv, a_re;                     // a byte of a read from sram_arb: its engi
 wire [2:0] a_rm;
 wire [7:0] a_rd;
 wire [3:0] v_m;
+
+// the SD cards of the engines (sd_oct in zx_oct) on the one image (sd_host)
+wire [15:0] h_pend, h_wr, h_q;
+wire [63:0] h_lba;
+wire [2:0] h_m;
+wire [1:0] h_done, h_we;
+wire [8:0] h_a;
+wire [7:0] h_d;
+wire [21:0] sd_csize;
+sd_host sdh (
+	.clk(clk_bus), .pend(h_pend), .wr(h_wr), .h_m(h_m), .lba(h_lba), .done(h_done), .we(h_we), .a(h_a), .d(h_d),
+	.q(h_q), .img_mounted(sdc_img_mounted[0]), .img_size(sdc_img_size), .sdc_rd(sdc_rd), .sdc_wr(sdc_wr),
+	.sdc_sector(sdc_sector), .sdc_busy(sdc_busy), .sdc_done(sdc_done), .sdc_error(sdc_error),
+	.sdc_byte_in_strobe(sdc_strobe), .sdc_byte_addr(sdc_byte_addr), .sdc_byte_in_data(sdc_byte_in),
+	.sdc_byte_out_data(sdc_byte_out), .c_size(sd_csize), .active()
+);
 
 genvar ge;
 generate
@@ -339,8 +384,11 @@ generate
 			.sel_en(sel[3] == ge), .sel(sm), .keys(kbd_keys), .keys_all(sw_keys_all & ~show_full),
 			.tape_in(m_tape_in[ge*8 +: 8]), .kempston(kbd_kempston),
 			.m_req(e_req[ge]), .m_we(e_we[ge]), .m_addr(e_addr[ge*22 +: 22]), .m_din(e_din[ge*8 +: 8]),
-			.m_rv(a_rv && a_re == ge), .m_rm(a_rm), .m_rd(a_rd),
-			.rom_we(rom_we), .rom_wa(ld_addr_mcu[14:0]), .rom_wd(ld_data_mcu),
+			.m_m(e_m[ge*3 +: 3]), .m_rv(a_rv && a_re == ge), .m_rm(a_rm), .m_rd(a_rd),
+			.divmmc_en(sw_divmmc), .dv_clear(areset | ld_hold),
+			.sd_en(1'b1), .sd_csize(sd_csize), .h_pend(h_pend[ge*8 +: 8]), .h_wr(h_wr[ge*8 +: 8]), .h_m(h_m),
+			.h_lba(h_lba[ge*32 +: 32]), .h_done(h_done[ge]), .h_we(h_we[ge]), .h_a(h_a), .h_d(h_d),
+			.h_q(h_q[ge*8 +: 8]),
 			.beeper(m_beeper[ge*8 +: 8]), .mic(m_mic[ge*8 +: 8]),
 			.v_m(v_m[2:0]), .v_border(e_vb[ge*3 +: 3]), .v_scr7(e_scr7[ge]),
 			.ay_we(e_ayw[ge]), .ay_wa(e_aywa[ge*4 +: 4]), .ay_wd(e_aywd[ge*8 +: 8]), .ay_ra(ay_ra),
@@ -366,7 +414,7 @@ wire [21:0] a_addr;
 wire [7:0] a_din;
 sram_arb arb(
 	.clk(clk_bus),
-	.e_req(e_req), .e_we(e_we), .e_addr(e_addr), .e_din(e_din),
+	.e_req(e_req), .e_we(e_we), .e_addr(e_addr), .e_din(e_din), .e_m(e_m),
 	.c_req(a_req), .c_we(a_we), .c_addr(a_addr), .c_din(a_din), .q(m_q),
 	.rv(a_rv), .re(a_re), .rm(a_rm), .rd(a_rd)
 );
@@ -381,6 +429,7 @@ assign v_m = show_full ? sel : w_m;
 
 // the self test of the SRAM (bring-up): after the start of the core only (at Reset All it held the machines and the
 // video port 0.2 s; the user wants Reset All to reset the Z80s only), the machines in reset meanwhile
+assign dw_we = dw_on && !mt_active && !rom_we;
 wire mt_done, mt_ok, mt_req, mt_we;
 wire [15:0] mt_bad;
 wire [20:0] mt_first;
@@ -389,7 +438,7 @@ wire [7:0] mt_din;
 reg areset_d = 1'b1;
 always @(posedge clk_bus)
 	areset_d <= areset;
-wire mt_start = areset_d & ~areset;
+wire mt_start = (DIAG != 0) && areset_d && !areset;   // with the diagnostics only (it would overwrite the ROMs)
 
 sram_test #(.AW(MEMTEST_AW)) mtest(
 	.clk(clk_bus), .start(mt_start),
@@ -399,8 +448,9 @@ sram_test #(.AW(MEMTEST_AW)) mtest(
 
 sram_ctrl sram(
 	.clk_bus(clk_bus), .clk_sys(clk_sys),
-	.c_req(mt_active ? mt_req : a_req), .c_we(mt_active ? mt_we : a_we), .c_addr(mt_active ? mt_addr : a_addr),
-	.c_din(mt_active ? mt_din : a_din),
+	.c_req(mt_active ? mt_req : rom_we | dw_on | a_req), .c_we(mt_active ? mt_we : rom_we | dw_on | a_we),
+	.c_addr(mt_active ? mt_addr : rom_we ? {6'b111111, ld_addr_mcu[15:0]} : dw_on ? {1'b1, dw_a} : a_addr),
+	.c_din(mt_active ? mt_din : rom_we ? ld_data_mcu : dw_on ? 8'd0 : a_din),
 	.v_req(v_req), .v_addr(v_addr), .v_ack(v_ack), .q(m_q),
 	.MA(MA), .MD(MD), .MRD_N(MRD_N), .MWR_N(MWR_N)
 );

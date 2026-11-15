@@ -66,18 +66,9 @@ initial begin
 end
 
 integer n = 0;
-reg rom_we = 1'b0;
-reg [14:0] rom_wa = 15'd0;
-reg [7:0] rom_wd = 8'd0;
 reg [15:0] reset = 16'hFFFF;
 always @(posedge clk_bus) begin
 	n = n + 1;
-	rom_we <= 1'b0;
-	if (n <= 32768) begin
-		rom_we <= 1'b1;
-		rom_wa <= n - 1;
-		rom_wd <= rom[n - 1];
-	end
 	if (n == 40000)
 		reset <= 16'h0000;
 end
@@ -86,6 +77,7 @@ end
 wire [1:0] e_req, e_we;
 wire [43:0] e_addr;
 wire [15:0] e_din;
+wire [5:0] e_m;
 wire a_rv, a_re;
 wire [2:0] a_rm;
 wire [7:0] a_rd;
@@ -98,8 +90,10 @@ generate
 			.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset[ge*8 +: 8]), .nmi(8'd0),
 			.sel_en(ge == 0), .sel(3'd0), .keys(40'd0), .keys_all(1'b0), .tape_in(8'd0), .kempston(8'd0),
 			.m_req(e_req[ge]), .m_we(e_we[ge]), .m_addr(e_addr[ge*22 +: 22]), .m_din(e_din[ge*8 +: 8]),
-			.m_rv(a_rv && a_re == ge), .m_rm(a_rm), .m_rd(a_rd),
-			.rom_we(rom_we), .rom_wa(rom_wa), .rom_wd(rom_wd),
+			.m_m(e_m[ge*3 +: 3]), .m_rv(a_rv && a_re == ge), .m_rm(a_rm), .m_rd(a_rd),
+			.divmmc_en(1'b0), .dv_clear(1'b0),
+			.sd_en(1'b0), .sd_csize(22'd0), .h_pend(), .h_wr(), .h_m(3'd0), .h_lba(), .h_done(1'b0), .h_we(1'b0), .h_a(9'd0),
+			.h_d(8'd0), .h_q(),
 			.beeper(), .mic(), .v_m(3'd0), .v_border(), .v_scr7(),
 			.ay_we(), .ay_wa(), .ay_wd(), .ay_ra(4'd0), .ay_rd(), .late(),
 			.dbg_pc(), .dbg_7ffd(), .dbg_ev()
@@ -111,7 +105,7 @@ wire c_req, c_we;
 wire [21:0] c_addr;
 wire [7:0] c_din;
 sram_arb arb (
-	.clk(clk_bus), .e_req(e_req), .e_we(e_we), .e_addr(e_addr), .e_din(e_din),
+	.clk(clk_bus), .e_req(e_req), .e_we(e_we), .e_addr(e_addr), .e_din(e_din), .e_m(e_m),
 	.c_req(c_req), .c_we(c_we), .c_addr(c_addr), .c_din(c_din), .q(q),
 	.rv(a_rv), .re(a_re), .rm(a_rm), .rd(a_rd)
 );
@@ -125,6 +119,12 @@ sram_ctrl sram (
 	.MA(MA), .MD(MD), .MRD_N(MRD_N), .MWR_N(MWR_N)
 );
 sram_model model (.A(MA), .DQ(MD), .RD_N(MRD_N), .WR_N(MWR_N), .drv(sram.md_oe[0]));
+// the ROM in the SRAM as the loader of the core puts it there: {111111, byte}, word 1F8000
+initial begin
+	#1;
+	for (i = 0; i < 16384; i = i + 1)
+		model.mem[21'h1F8000 + i] = {rom[2*i+1], rom[2*i]};
+end
 
 // ---------------------------------------------------------------------------------------------
 // INT of zx_timing: its start (the clock), low time, period; the first paper pixel after it

@@ -20,6 +20,7 @@ MINGW*|MSYS*|CYGWIN*)
 esac
 mkdir -p work_ps/xst/projnav.tmp
 $PY ../../tools/rom2hex.py ../roms/128.rom ../roms/48.rom work_ps/roms.hex
+$PY ../../tools/rom2hex.py ../roms/esxdos089.bin work_ps/esx.hex
 cd work_ps
 cat > zx_oct.prj <<PRJ
 verilog work "../../rtl/tv80/tv80_alu.v"
@@ -27,6 +28,8 @@ verilog work "../../rtl/tv80/tv80_mcode.v"
 verilog work "../../rtl/tv80/tv80o_reg.v"
 verilog work "../../rtl/tv80/tv80o_core.v"
 verilog work "../../rtl/zx/zx_oct.v"
+verilog work "../../rtl/sd/sd_oct.v"
+verilog work "../../../modules/rtl/mem/kg_tdpram.v"
 PRJ
 sed -e 's|work/xst|xst|g' -e 's|-ifn work/cpu8.prj|-ifn zx_oct.prj|' -e 's|-ofn work/cpu8|-ofn zx_oct|' \
 	-e 's|-top cpu8_top|-top zx_oct|' -e 's|-iobuf YES|-iobuf NO|' ${XST_SED:+-e "$XST_SED"} ../../test/cpu8.xst > zx_oct.xst
@@ -39,6 +42,8 @@ verilog work "../../rtl/tv80/tv80_mcode.v"
 verilog work "../../rtl/tv80/tv80o_reg.v"
 verilog work "../../rtl/tv80/tv80o_core.v"
 verilog work "../../rtl/zx/zx_oct.v"
+verilog work "../../rtl/sd/sd_oct.v"
+verilog work "../../../modules/rtl/mem/kg_tdpram.v"
 verilog work "../../rtl/zx/zx_timing.v"
 verilog work "../../rtl/mem/sram_ctrl.v"
 verilog work "../../rtl/mem/sram_arb.v"

@@ -21,6 +21,13 @@ same change as the code they describe.
 
 Milestones 1 (the CPU), 2 (eight machines on SRAM), 3 (the first Go core), 4 (the wall) and 6 (16 machines) done;
 milestone 5 (Mini / Mini G) done: works on all three boards (2026-11-15).
+- DivMMC + SD (2026-11-15, docs/PLAN.md "DivMMC и SD-карта"; the user decided: all in SRAM, 128 KB DivMMC per machine,
+  64 KB for the 16th, ROMs in the 64 KB left, one image for all): ROMs in SRAM at byte 0x3F0000 (128, 48, ESXDOS at
+  0x3F8000; the block RAM ROMs are gone), DivMMC RAM at {1, BASE, m, bank 4, off 13}. `sram_arb` carries the machine
+  of a request (`e_m` from `m_m` of zx_oct), not address bits. `rtl/sd/sd_oct.v`: the cards of an engine (kg_sd_emu's
+  FSM in contexts, sector buffer 4 KB per engine, WAIT on an #EB read while the card waits: `c_ebw`);
+  `rtl/sd/sd_host.v`: 16 cards on kg_mcu2 img slot 0 (ENABLE_IMG 1), 32-sector cache. DivMMC RAM cleared after start
+  and Reset All (`dw_*` in speccywall.v).
 - Milestone 5: `karabas_{mini,minig}_top.v` (QuadSpeccy's), HDMI `rtl/video/hdmi_out.v` = `hdmi_enc.vhd` (zhdmi_tx of
   the modules without its serializers, GPL) + `tmds_oserdes.v` (PLL x10 on pclk, BUFPLL, OSERDES2 master/slave per
   lane, XAPP495 style; the fabric serializer at 368 MHz failed). pclk now from a DCM (CLKFX 21/8 of clk_bus): the
@@ -75,7 +82,9 @@ milestone 5 (Mini / Mini G) done: works on all three boards (2026-11-15).
   `../karabas-go-tools`, `make go-report`). map sometimes stops in Global Placement without a message (as in
   QuadSpeccy): run make again. About 10 minutes. The `.bin` / `.kg`
   are the release, committed. Check the `.syr` Clock Information (pclk, clk_bus, clk_sys, MCU_SCK only).
-- Measured: 3147 LUT, 1047 slices, clk_bus 32.7 ns of 35.7, pclk 13.51 of 13.59 (the blend of kg_l2_osd_overlay).
+- Measured (DivMMC + SD, 2026-11-15): Go 2328 slices (61 %), Mini 2759 / Mini G 2752 (73 %), 14 RAMB16 + 9 RAMB8;
+  clk_bus 24.2-28.7 ns of 35.7, pclk 10.1-13.2 of 13.59 (the OSD geometry is pipelined: from the OSD switches of
+  clk_bus it failed on the Mini, the TIG clk_bus -> pclk did not cover it).
 
 ## Tests
 
@@ -95,7 +104,7 @@ milestone 5 (Mini / Mini G) done: works on all three boards (2026-11-15).
   `late` never; a random video reader checked. Random code by default (2 M clocks ~ 4 min); `ROM=1` the ROM 128
   (~45 s per frame of 573440 clocks; machines out of reset 1000 T apart; `work_w/screens.png` via
   `tools/render_wall.py`); `SEED`, `FUSE_DEFS="-d WATCH=22'h<addr>"` traces the writes of one byte.
-- `src/test/run_timing.sh wall8`: `zx_oct` + `sram_ctrl` on the SRAM pins of the Go (`wall8.ucf` with the SRAM
+- `src/test/run_timing.sh wall8` (out of date: `wall8_top.v` has the ports of milestone 4, before sram_arb): `zx_oct` + `sram_ctrl` on the SRAM pins of the Go (`wall8.ucf` with the SRAM
   constraints of TS-Conf): 1679 LUT, 563 slices, 16 RAMB16, clk_bus 21.3 ns.
 - `src/sim/run_video.sh [frames]`: zx_scr + sram_ctrl + the SRAM model + vga_out, every visible VGA pixel against the
   memory, the CPU port of the SRAM as busy as eight machines make it; `MODE=0` 720 x 576, `STRIPES=1`, `SCR7=1`,
@@ -105,6 +114,14 @@ milestone 5 (Mini / Mini G) done: works on all three boards (2026-11-15).
   (`tools/sna2sim.py`: the RAM into machine 0, a 48 ROM with a loader of the registers in place of SA-BYTES) on the
   two engines; per frame the acknowledges and the ports. `src/sim/run_r.sh`: the R register of tv80_core against
   the Z80 (tv80 had no R without TV80_REFRESH: LD A,R = 0, fixed 2026-11-15; the tests compare R now).
+- `src/sim/run_sd.sh [frames]`: 16 machines boot ESXDOS from an image (`tools/mkimg.py`, FAT16 of SYS / BIN from
+  `../v6z80p/V6_SD_card`, `SDDIR`) through sd_host and a model of the file mounter (`LAT`, `STAGGER`); every byte a
+  card gives of a sector against the image; `work_d/screens.png`. ~2 min per frame. The test ROM copy has ESXDOS's
+  long loops shortened (power-on delay, RAM clears, the 12800-byte response poll; `FAST=0` the ROM as it is): without
+  that the card is reached after ~25 frames, and after sector 0 ESXDOS probes the second card (#E7 bit 1) for ~60. tb_wall / tb_ps / tb_int / tb_sna have the card off (`sd_en` 0); `DIVMMC=1 run_wall.sh`
+  checks the DivMMC map and ports, `FUSE_DEFS="-d DIVMMC" run_ps.sh` the netlist with ESXDOS.
+- ISim 14.7 missed the write of the head entry of an empty queue through a continuous assignment / always @* of a
+  memory word (`sram_arb` head): give such a mux an explicit sensitivity list with the pointers.
 - `src/sim/run_ps.sh [clocks]`: (`FUSE_DEFS="-d INTROM"` the IM 1 program of tb_int, `-d SNA` the snapshot of
   work_ps/rom.hex, ram.hex) XST + netgen of zx_oct, tb_ps.v boots the ROM 128 in the netlist and the RTL, all
   outputs every clock (`TRACE=n` the first PC changes; `XST_SED` edits the XST options). 1.5 M clocks ~10 min.

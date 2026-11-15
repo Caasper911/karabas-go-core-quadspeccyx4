@@ -57,22 +57,11 @@ initial begin
 	$readmemh("rom.hex", romw);
 `endif
 end
-reg rom_we = 1'b0;
-reg [14:0] rom_wa = 15'd0;
-reg [7:0] rom_wd = 8'd0;
-reg [15:0] li = 16'd0;
 reg [7:0] reset = 8'hFF;
 integer n = 0, k;
 reg [2:0] sel = 3'd0;
 always @(posedge clk_bus) begin
 	n = n + 1;
-	rom_we <= 1'b0;
-	if (n > 20 && li < 16'd32768) begin    // after the GSR of the netlist (100 ns: a write then is lost)
-		rom_we <= 1'b1;
-		rom_wa <= li[14:0];
-		rom_wd <= li[0] ? romw[li[14:1]][15:8] : romw[li[14:1]][7:0];
-		li <= li + 1'd1;
-	end
 `ifdef SNA
 	if (n == 40000) reset[0] <= 1'b0;      // machine 0 only
 `else
@@ -86,6 +75,7 @@ end
 wire [1:0] e_req, e_we;
 wire [43:0] e_addr;
 wire [15:0] e_din;
+wire [5:0] e_m;
 wire [31:0] e_q;
 wire [1:0] e_rv;
 wire [5:0] e_rm;
@@ -102,8 +92,10 @@ zx_oct rtl (
 	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset), .nmi(8'd0),
 	.sel_en(1'b1), .sel(sel), .keys(40'd0), .keys_all(1'b0), .tape_in(8'd0), .kempston(8'd0),
 	.m_req(e_req[0]), .m_we(e_we[0]), .m_addr(e_addr[21:0]), .m_din(e_din[7:0]),
-	.m_rv(e_rv[0]), .m_rm(e_rm[2:0]), .m_rd(e_rd[7:0]),
-	.rom_we(rom_we), .rom_wa(rom_wa), .rom_wd(rom_wd),
+	.m_m(e_m[2:0]), .m_rv(e_rv[0]), .m_rm(e_rm[2:0]), .m_rd(e_rd[7:0]),
+	.divmmc_en(divmmc_en), .dv_clear(1'b0),
+	.sd_en(1'b0), .sd_csize(22'd0), .h_pend(), .h_wr(), .h_m(3'd0), .h_lba(), .h_done(1'b0), .h_we(1'b0), .h_a(9'd0),
+	.h_d(8'd0), .h_q(),
 	.beeper(e_beeper[7:0]), .mic(e_mic[7:0]), .v_m(sel), .v_border(e_vb[2:0]), .v_scr7(e_scr7[0]),
 	.ay_we(e_ayw[0]), .ay_wa(e_aywa[3:0]), .ay_wd(e_aywd[7:0]), .ay_ra(slot ^ 4'd5), .ay_rd(e_ayrd[7:0]),
 	.late(e_late[7:0]), .dbg_pc(e_pc[15:0]), .dbg_7ffd(e_7ffd[5:0]), .dbg_ev(e_ev[5:0])
@@ -113,8 +105,10 @@ zx_oct_ps syn (
 	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset), .nmi(8'd0),
 	.sel_en(1'b1), .sel(sel), .keys(40'd0), .keys_all(1'b0), .tape_in(8'd0), .kempston(8'd0),
 	.m_req(e_req[1]), .m_we(e_we[1]), .m_addr(e_addr[43:22]), .m_din(e_din[15:8]),
-	.m_rv(e_rv[1]), .m_rm(e_rm[5:3]), .m_rd(e_rd[15:8]),
-	.rom_we(rom_we), .rom_wa(rom_wa), .rom_wd(rom_wd),
+	.m_m(e_m[5:3]), .m_rv(e_rv[1]), .m_rm(e_rm[5:3]), .m_rd(e_rd[15:8]),
+	.divmmc_en(divmmc_en), .dv_clear(1'b0),
+	.sd_en(1'b0), .sd_csize(22'd0), .h_pend(), .h_wr(), .h_m(3'd0), .h_lba(), .h_done(1'b0), .h_we(1'b0), .h_a(9'd0),
+	.h_d(8'd0), .h_q(),
 	.beeper(e_beeper[15:8]), .mic(e_mic[15:8]), .v_m(sel), .v_border(e_vb[5:3]), .v_scr7(e_scr7[1]),
 	.ay_we(e_ayw[1]), .ay_wa(e_aywa[7:4]), .ay_wd(e_aywd[15:8]), .ay_ra(slot ^ 4'd5), .ay_rd(e_ayrd[15:8]),
 	.late(e_late[15:8]), .dbg_pc(e_pc[31:16]), .dbg_7ffd(e_7ffd[11:6]), .dbg_ev(e_ev[11:6])
@@ -132,7 +126,7 @@ generate
 		sram_arb arb (
 			.clk(clk_bus),
 			.e_req({1'b0, e_req[e]}), .e_we({1'b0, e_we[e]}), .e_addr({22'd0, e_addr[e*22 +: 22]}),
-			.e_din({8'd0, e_din[e*8 +: 8]}),
+			.e_din({8'd0, e_din[e*8 +: 8]}), .e_m({3'd0, e_m[e*3 +: 3]}),
 			.c_req(c_req), .c_we(c_we), .c_addr(c_addr), .c_din(c_din), .q(e_q[e*16 +: 16]),
 			.rv(e_rv[e]), .re(), .rm(e_rm[e*3 +: 3]), .rd(e_rd[e*8 +: 8])
 		);
@@ -147,13 +141,31 @@ generate
 endgenerate
 
 integer i, sa;
+// DIVMMC: DivMMC on (ESXDOS at the NMI and the automap entries; the card answers FF)
+`ifdef DIVMMC
+wire divmmc_en = 1'b1;
+`else
+wire divmmc_en = 1'b0;
+`endif
+reg [15:0] esxw [0:4095];
 `ifdef SNA
 reg [15:0] ramw [0:65535];
 `endif
 initial begin
+	#1;                                    // after the $readmemh of romw
 	for (i = 0; i < (1 << 21); i = i + 1) begin
 		g_mem[0].model.mem[i] = i[15:0];
 		g_mem[1].model.mem[i] = i[15:0];
+	end
+	// the ROMs in the SRAM as the loader of the core puts them there: {111111, byte}, words 1F8000 (128, 48), 1FC000
+	$readmemh("esx.hex", esxw);
+	for (i = 0; i < 16384; i = i + 1) begin
+		g_mem[0].model.mem[21'h1F8000 + i] = romw[i];
+		g_mem[1].model.mem[21'h1F8000 + i] = romw[i];
+	end
+	for (i = 0; i < 4096; i = i + 1) begin
+		g_mem[0].model.mem[21'h1FC000 + i] = esxw[i];
+		g_mem[1].model.mem[21'h1FC000 + i] = esxw[i];
 	end
 `ifdef SNA
 	$readmemh("ram.hex", ramw);

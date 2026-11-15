@@ -41,14 +41,11 @@ reg [15:0] romw [0:16383];
 integer i, n = 0;
 initial begin
 	$readmemh("roms.hex", romw);
-	for (i = 0; i < 16384; i = i + 1) begin
-		dut.g_eng[0].eng.rom[2*i] = romw[i][7:0];
-		dut.g_eng[1].eng.rom[2*i] = romw[i][7:0];
-		dut.g_eng[0].eng.rom[2*i+1] = romw[i][15:8];
-		dut.g_eng[1].eng.rom[2*i+1] = romw[i][15:8];
-	end
 	for (i = 0; i < (1 << 21); i = i + 1)
 		model.mem[i] = 16'h0000;
+	// the ROMs in the SRAM, as the loader puts them there ({111111, byte}: words 1F8000)
+	for (i = 0; i < 16384; i = i + 1)
+		model.mem[21'h1F8000 + i] = romw[i];
 	// the MCU would end its INIT (busy 0) after loading the ROMs
 	#2000 force dut.mcu_busy = 1'b0;
 end

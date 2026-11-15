@@ -19,6 +19,13 @@
  (each 8th byte ED, EI 1 of 64, no HALT), random INT, NMI, resets (every ~8000 T), keys, the selected machine.
  `define CLOCKS (default 2 000 000), SEED (1), WATCH (a byte address: its writes printed). Prints
  "tb_wall: <n> errors".
+
+ The ROMs are in the SRAM ({111111, rom 16}: 128 at 0000, 48 at 4000, ESXDOS at 8000), put into the model at the start
+ (the loader of the core is not here); the video reader reads that region (the rest of the SRAM is used now).
+ `define DIVMMC: the DivMMC on (zx_oct divmmc_en), the golden bus has it as pentagon.v of QuadSpeccy: #E3 / #E7 / #EB
+ (no card: #EB gives FF), the mapping of ESXDOS (random 8 KB, or esxdos089.bin with MODE_ROM) and the 128 KB of each
+ machine, automap / detect; its memory compared at the end. A read of the golden machine uses the mapping of its T1
+ (the engine asks there; automap may change at T2).
 */
 
 module tb_wall;
@@ -155,9 +162,11 @@ wire e1_req, e1_we;
 wire [21:0] e1_addr;
 wire [7:0] e1_din;
 wire [7:0] late1;
-reg rom_we = 1'b0;
-reg [14:0] rom_wa = 15'd0;
-reg [7:0] rom_wd = 8'd0;
+`ifdef DIVMMC
+wire divmmc_en = 1'b1;
+`else
+wire divmmc_en = 1'b0;
+`endif
 wire [7:0] beeper, mic;
 reg [2:0] v_m = 3'd0;
 wire [2:0] v_border;
@@ -167,11 +176,14 @@ wire [3:0] ay_wa;
 wire [7:0] ay_wd;
 wire [7:0] late;
 
+wire [5:0] e_m;
 zx_oct #(.BASE(2'd0)) eng (
 	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset), .nmi(nmi),
 	.sel_en(1'b1), .sel(sel), .keys(keys), .keys_all(keys_all), .tape_in(tape_in), .kempston(kempston),
-	.m_req(m_req), .m_we(m_we), .m_addr(m_addr), .m_din(m_din), .m_rv(m_rv & ~m_re), .m_rm(m_rm), .m_rd(m_rd),
-	.rom_we(rom_we), .rom_wa(rom_wa), .rom_wd(rom_wd),
+	.m_req(m_req), .m_we(m_we), .m_addr(m_addr), .m_din(m_din), .m_m(e_m[2:0]), .m_rv(m_rv & ~m_re), .m_rm(m_rm), .m_rd(m_rd),
+	.divmmc_en(divmmc_en), .dv_clear(1'b0),
+	.sd_en(1'b0), .sd_csize(22'd0), .h_pend(), .h_wr(), .h_m(3'd0), .h_lba(), .h_done(1'b0), .h_we(1'b0), .h_a(9'd0),
+	.h_d(8'd0), .h_q(),
 	.beeper(beeper), .mic(mic), .v_m(v_m), .v_border(v_border), .v_scr7(v_scr7),
 	.ay_we(ay_we), .ay_wa(ay_wa), .ay_wd(ay_wd), .ay_ra(4'd0), .ay_rd(), .late(late)
 );
@@ -179,8 +191,10 @@ zx_oct #(.BASE(2'd0)) eng (
 zx_oct #(.BASE(2'd1)) eng1 (
 	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset), .nmi(nmi),
 	.sel_en(1'b1), .sel(sel), .keys(keys), .keys_all(keys_all), .tape_in(tape_in), .kempston(kempston),
-	.m_req(e1_req), .m_we(e1_we), .m_addr(e1_addr), .m_din(e1_din), .m_rv(m_rv & m_re), .m_rm(m_rm), .m_rd(m_rd),
-	.rom_we(rom_we), .rom_wa(rom_wa), .rom_wd(rom_wd),
+	.m_req(e1_req), .m_we(e1_we), .m_addr(e1_addr), .m_din(e1_din), .m_m(e_m[5:3]), .m_rv(m_rv & m_re), .m_rm(m_rm), .m_rd(m_rd),
+	.divmmc_en(divmmc_en), .dv_clear(1'b0),
+	.sd_en(1'b0), .sd_csize(22'd0), .h_pend(), .h_wr(), .h_m(3'd0), .h_lba(), .h_done(1'b0), .h_we(1'b0), .h_a(9'd0),
+	.h_d(8'd0), .h_q(),
 	.beeper(), .mic(), .v_m(3'd0), .v_border(), .v_scr7(),
 	.ay_we(), .ay_wa(), .ay_wd(), .ay_ra(4'd0), .ay_rd(), .late(late1)
 );
@@ -190,11 +204,19 @@ wire [21:0] c_addr;
 wire [7:0] c_din;
 sram_arb arb (
 	.clk(clk_bus),
-	.e_req({e1_req, m_req}), .e_we({e1_we, m_we}), .e_addr({e1_addr, m_addr}), .e_din({e1_din, m_din}),
+	.e_req({e1_req, m_req}), .e_we({e1_we, m_we}), .e_addr({e1_addr, m_addr}), .e_din({e1_din, m_din}), .e_m(e_m),
 	.c_req(c_req), .c_we(c_we), .c_addr(c_addr), .c_din(c_din), .q(m_q),
 	.rv(m_rv), .re(m_re), .rm(m_rm), .rd(m_rd)
 );
 
+`ifdef QTRACE
+reg [3:0] qmax0 = 0, qmax1 = 0;
+always @(negedge clk_bus) begin
+	if (arb.wp0 - arb.rp0 > qmax0) begin qmax0 = arb.wp0 - arb.rp0; $display("clock %0d queue0 %0d", cycles, qmax0); end
+	if (arb.wp1 - arb.rp1 > qmax1) begin qmax1 = arb.wp1 - arb.rp1; $display("clock %0d queue1 %0d", cycles, qmax1); end
+	if (cycles > 92755 && cycles < 92782) $display("%0d req %b%b we %b%b m %h a0 %h | take %b%b head %h | t3 %b %b %0d | late %b slot %0d mm %0d %0d wp %0d rp %0d q %h", cycles, e1_req, m_req, e1_we, m_we, e_m, m_addr, arb.take1, arb.take0, arb.head, m_rv, m_re, m_rm, late, slot, eng.m_m, eng1.m_m, arb.wp0, arb.rp0, arb.fq0[arb.rp0]);
+end
+`endif
 reg v_req = 1'b0;
 reg [20:0] v_addr = 21'd0;
 wire v_ack;
@@ -221,6 +243,9 @@ always @(posedge clk_bus)
 
 reg [7:0] g_ram [0:8*131072-1];   // golden: machine k at k * 128 KB, page p at p * 16 KB
 reg [7:0] g_rom [0:32767];
+reg [7:0] g_esx [0:8191];         // the ESXDOS ROM
+reg [7:0] g_dv [0:8*131072-1];    // the DivMMC RAM: machine k at k * 128 KB, bank b at b * 8 KB
+reg [15:0] rom_exp [0:20479];     // the words of the ROM region of the SRAM (the video reader)
 reg [15:0] romw [0:16383];
 integer errors = 0;
 
@@ -236,9 +261,6 @@ endfunction
 
 initial begin
 	for (k = 0; k < 8; k = k + 1) begin rst_cnt[k] = 20; nmi_cnt[k] = 0; end
-	// the words above the two engines (the video reader): their address in both bytes
-	for (i = 16 * 65536; i < (1 << 21); i = i + 1)
-		model.mem[i] = i[15:0] ^ i[20:5];
 `ifdef MODE_ROM
 	$readmemh("roms.hex", romw);
 	for (i = 0; i < 16384; i = i + 1) begin
@@ -260,20 +282,33 @@ initial begin
 	for (i = 0; i < 8 * 131072; i = i + 1)
 		g_ram[i] = rnd_byte($random(seed));
 `endif
+	for (i = 0; i < 8192; i = i + 1)
+		g_esx[i] = rnd_byte($random(seed));
+`ifdef MODE_ROM
+	$readmemh("esx.hex", g_esx);
+`endif
+	for (i = 0; i < 8 * 131072; i = i + 1)
+		g_dv[i] = rnd_byte($random(seed));
 	for (i = 0; i < 8 * 65536; i = i + 1) begin
 		model.mem[i] = {g_ram[2*i+1], g_ram[2*i]};
 		model.mem[8 * 65536 + i] = {g_ram[2*i+1], g_ram[2*i]};
 	end
 
-	// the ROM through the loader port, one byte a clock
-	@(posedge clk_bus);
-	for (i = 0; i < 32768; i = i + 1) begin
-		rom_we <= 1'b1;
-		rom_wa <= i;
-		rom_wd <= g_rom[i];
-		@(posedge clk_bus);
+	// the ROMs into the SRAM (the loader of the core writes them there), the DivMMC RAM of both engines the same
+	for (i = 0; i < 16384; i = i + 1) begin
+		model.mem[21'h1F8000 + i] = {g_rom[2*i+1], g_rom[2*i]};
+		rom_exp[i] = {g_rom[2*i+1], g_rom[2*i]};
 	end
-	rom_we <= 1'b0;
+	for (i = 0; i < 4096; i = i + 1) begin
+		model.mem[21'h1FC000 + i] = {g_esx[2*i+1], g_esx[2*i]};
+		rom_exp[16384 + i] = {g_esx[2*i+1], g_esx[2*i]};
+	end
+	for (i = 0; i < 8 * 65536; i = i + 1) begin
+		model.mem[21'h100000 + i] = {g_dv[2*i+1], g_dv[2*i]};
+		if (i < 7 * 65536 + 32768)                                // engine 1: its last machine has 64 KB (the ROMs above)
+			model.mem[21'h180000 + i] = {g_dv[2*i+1], g_dv[2*i]};
+	end
+	repeat (100) @(posedge clk_bus);
 	loading <= 1'b0;
 end
 
@@ -304,20 +339,32 @@ reg [7:0] g_pdat [0:7];
 reg [3:0] g_ayreg [0:7];
 reg g_ayrv [0:7];
 reg [7:0] g_ay [0:127];
+reg g_conmem [0:7], g_mapram [0:7], g_automap [0:7], g_detect [0:7], g_cs_n [0:7];
+reg [3:0] g_dvbank [0:7];
+reg g_map_t1 [0:7];               // the DivMMC was mapped at T1 of this M-cycle (the read of the golden one uses it)
+initial for (k = 0; k < 8; k = k + 1) begin
+	g_conmem[k] = 1'b0; g_mapram[k] = 1'b0; g_automap[k] = 1'b0; g_detect[k] = 1'b0; g_cs_n[k] = 1'b1; g_dvbank[k] = 4'd0;
+	g_map_t1[k] = 1'b0;
+end
 initial for (k = 0; k < 8; k = k + 1) begin
 	g_di[k] = 8'hFF; g_7ffd[k] = 6'd0; g_border[k] = 3'd0; g_wrdone[k] = 1'b0; g_pdat[k] = 8'hFF; g_ayreg[k] = 4'd0;
 	g_ayrv[k] = 1'b1;
 end
 initial for (i = 0; i < 128; i = i + 1) g_ay[i] = 8'd0;
 
-// the byte at A of golden machine k
+// the byte at A of golden machine k (mapped: the DivMMC was mapped when the read started)
 function [7:0] g_rd;
 	input [2:0] m;
 	input [15:0] a;
+	input mapped;
 	reg [2:0] pg;
 	begin
 		pg = (a[15:14] == 2'b01) ? 3'd5 : (a[15:14] == 2'b10) ? 3'd2 : g_7ffd[m][2:0];
-		if (a[15:14] == 2'b00)
+		if (mapped && a[15:13] == 3'b000)
+			g_rd = g_mapram[m] ? g_dv[{m, 4'd3, a[12:0]}] : g_esx[a[12:0]];
+		else if (mapped && a[15:13] == 3'b001)
+			g_rd = g_dv[{m, g_dvbank[m], a[12:0]}];
+		else if (a[15:14] == 2'b00)
 			g_rd = g_rom[{g_7ffd[m][4], a[13:0]}];
 		else
 			g_rd = g_ram[{m, pg, a[13:0]}];
@@ -343,7 +390,7 @@ function [7:0] g_port;
 		else if (a[7:0] == 8'h1F)
 			g_port = (m == sel || keys_all) ? kempston : 8'h00;
 		else
-			g_port = 8'hFF;
+			g_port = 8'hFF;                // also #EB of the DivMMC: no card
 	end
 endfunction
 
@@ -400,13 +447,13 @@ generate
 
 		// the byte the CPU takes at its cen in T2 (opcode, memory, port, FF of an acknowledge): the engine one the same
 		always @(negedge clk_bus) begin
-			dinst = io_rd ? g_pdat[g] : (m1 && !gintc_n[g]) ? 8'hFF : g_memrd ? g_rd(g, a) : g_last;
+			dinst = io_rd ? g_pdat[g] : (m1 && !gintc_n[g]) ? 8'hFF : g_memrd ? g_rd(g, a, g_map_t1[g]) : g_last;
 			if (cen && ts[2] && !loading && !frozen && !reset[g] && settle[g] == 0 &&
 				(m1 || (~gnoread[g] & ~gwrite[g])) && (^dinst !== 1'bx) && eng.c_dinst !== dinst) begin
 				errors = errors + 1;
 				$display("%t clock %0d machine %0d takes %h, golden %h: A %h mc %b io %b ic %b src %b pdat %h mdat %h 7ffd %h / %h",
 					$time, cycles, g, eng.c_dinst, dinst, a, gmc[g*7 +: 7], giorq[g], gintc_n[g], eng.c_src[g],
-					eng.c_pdat[g], (eng.c_fromrom[g] ? eng.c_romd[g] : eng.c_ramd[g]), eng.c_7ffd[g], g_7ffd[g]);
+					eng.c_pdat[g], eng.c_ramd[g], eng.c_7ffd[g], g_7ffd[g]);
 				finish;
 			end
 		end
@@ -451,18 +498,45 @@ generate
 		always @(negedge clk_bus)
 			if (g == `TRACE_M && cycles >= `TRACE_FROM && slot == ((g + 1) & 7))
 				$display("%0d A %h mc %b ts %b io %b wr %b ic %b int %b | eng dinst %h di %h ACC %h PC %h | gold dinst %h di %h ACC %h PC %h",
-					cycles, a, gmc[g*7 +: 7], ts, giorq[g], gwrite[g], gintc_n[g], g_int_n, eng.c_src[g] ? eng.c_pdat[g] : (eng.c_fromrom[g] ? eng.c_romd[g] : eng.c_ramd[g]),
+					cycles, a, gmc[g*7 +: 7], ts, giorq[g], gwrite[g], gintc_n[g], g_int_n, eng.c_src[g] ? eng.c_pdat[g] : eng.c_ramd[g],
 					eng.c_di[g], eng.core.ACC_m[g], eng.core.PC_m[g], dinst, g_di[g], cpu.ACC, cpu.PC);
 `endif
 
+		// the DivMMC of this machine now (CONMEM, automap, this opcode fetch of 3Dxx)
+		wire g_instant = m1 && gintc_n[g] && a[15:8] == 8'h3D;
+		wire g_mapped = divmmc_en && (g_conmem[g] || g_automap[g] || g_instant);
+		wire g_entry = a == 16'h0000 || a == 16'h0008 || a == 16'h0038 || a == 16'h0066 || a == 16'h04C6 || a == 16'h0562;
+
 		always @(posedge clk_bus) if (!frozen) begin
+			if (slot == ((g + 1) & 7) && ts[1])
+				g_map_t1[g] <= g_mapped;
 			if (reset[g]) begin
 				g_7ffd[g] <= 6'd0;
 				g_wrdone[g] <= 1'b0;
 				g_ayreg[g] <= 4'd0;
 				g_ayrv[g] <= 1'b1;
 				for (gj = 0; gj < 16; gj = gj + 1) g_ay[g*16 + gj] <= 8'd0;
+				if (nmi[g]) begin
+					g_conmem[g] <= 1'b0;
+					g_mapram[g] <= 1'b0;
+					g_dvbank[g] <= 4'd0;
+					g_cs_n[g] <= 1'b1;
+				end
 			end else begin
+				// DivMMC automap (in the bus slot, as the engine): in the M1 read by the address, out of it follows detect
+				if (slot == ((g + 1) & 7) && divmmc_en) begin
+					if (m1 && gintc_n[g] && (ts[1] || ts[2])) begin
+						if (g_entry)
+							g_detect[g] <= 1'b1;
+						else if (a[15:3] == 13'b0001111111111)
+							g_detect[g] <= 1'b0;
+						else if (a[15:8] == 8'h3D) begin
+							g_automap[g] <= 1'b1;
+							g_detect[g] <= 1'b1;
+						end
+					end else
+						g_automap[g] <= g_detect[g];
+				end
 				// the data of a port: taken in every clock after a cen (as the bus slots of the engine)
 				if (slot == ((g + 1) & 7) && io_rd)
 					g_pdat[g] <= g_port(g, a);
@@ -478,7 +552,10 @@ generate
 					if (ts[2] && !g_wrdone[g]) begin
 						if (mem_wr || io_wr)
 							g_wrdone[g] <= 1'b1;
-						if (mem_wr && a[15:14] != 2'b00)
+						if (mem_wr && g_mapped && a[15:13] == 3'b001) begin
+							if (!(g_mapram[g] && g_dvbank[g] == 4'd3))
+								g_dv[{GM, g_dvbank[g], a[12:0]}] <= dout;
+						end else if (mem_wr && a[15:14] != 2'b00)
 							g_ram[{GM, (a[15:14] == 2'b01) ? 3'd5 : (a[15:14] == 2'b10) ? 3'd2 : g_7ffd[g][2:0],
 								a[13:0]}] <= dout;
 `ifdef WATCH
@@ -495,6 +572,13 @@ generate
 							end
 							if (!a[15] && !a[1] && !g_7ffd[g][5])
 								g_7ffd[g] <= dout[5:0];
+							if (divmmc_en && a[7:0] == 8'hE3) begin
+								g_conmem[g] <= dout[7];
+								g_mapram[g] <= g_mapram[g] | dout[6];
+								g_dvbank[g] <= dout[3:0];
+							end
+							if (divmmc_en && a[7:0] == 8'hE7)
+								g_cs_n[g] <= dout[0];
 							if (a[15] && !a[1]) begin
 								if (a[14]) begin
 									g_ayreg[g] <= dout[3:0];
@@ -582,7 +666,7 @@ integer vreads = 0;
 always @(posedge clk_bus) begin
 	if (v_ack || !v_req) begin
 		v_req <= ($random(seed) & 3) == 0;
-		v_addr <= 21'h100000 + (($random(seed) & 32'h7FFFFFFF) % 21'h100000);
+		v_addr <= 21'h1F8000 + (($random(seed) & 32'h7FFFFFFF) % 20480);    // the ROMs
 	end
 	v_v1 <= v_ack;
 	v_a1 <= v_addr;
@@ -590,9 +674,9 @@ always @(posedge clk_bus) begin
 	v_a2 <= v_a1;
 	if (v_v2) begin
 		vreads = vreads + 1;
-		if (m_q !== (v_a2[15:0] ^ v_a2[20:5])) begin
+		if (m_q !== rom_exp[v_a2 - 21'h1F8000]) begin
 			errors = errors + 1;
-			if (errors < 10) $display("%t video read %h: %h, not %h", $time, v_a2, m_q, v_a2[15:0] ^ v_a2[20:5]);
+			if (errors < 10) $display("%t video read %h: %h, not %h", $time, v_a2, m_q, rom_exp[v_a2 - 21'h1F8000]);
 		end
 	end
 end
@@ -621,15 +705,22 @@ task finish;
 		s_mic = mic;
 		loading = 1'b1;
 		frozen = 1'b1;
-		@(posedge clk_bus);
-		@(posedge clk_bus);
+		// the machines held (no new requests), the writes in the queues of sram_arb reach the SRAM
+		reset <= 8'hFF;
+		nmi <= 8'h00;
+		repeat (40) @(posedge clk_bus);
 		#1;
 		mem_err = 0;
-		for (i = 0; i < 8 * 65536; i = i + 1)
+		for (i = 0; i < 8 * 65536; i = i + 1) begin
 			if (model.mem[i] !== {g_ram[2*i+1], g_ram[2*i]}) begin
 				mem_err = mem_err + 1;
 				if (mem_err < 5) $display("memory word %h: SRAM %h, golden %h%h", i, model.mem[i], g_ram[2*i+1], g_ram[2*i]);
 			end
+			if (model.mem[21'h100000 + i] !== {g_dv[2*i+1], g_dv[2*i]}) begin
+				mem_err = mem_err + 1;
+				if (mem_err < 5) $display("DivMMC word %h: SRAM %h, golden %h%h", i, model.mem[21'h100000 + i], g_dv[2*i+1], g_dv[2*i]);
+			end
+		end
 		for (k = 0; k < 8; k = k + 1) begin
 			if (s_border[k] !== g_border[k] || s_beeper[k] !== g_beeper[k] || s_mic[k] !== g_mic[k] ||
 				s_7ffd[k] !== g_7ffd[k]) begin

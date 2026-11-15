@@ -16,6 +16,7 @@ src/sim/work_t/
 src/sim/work_r/
 src/sim/work_s/
 src/sim/work_i/
+src/sim/work_d/
 
 # ISE intermediate files of the core build (the .bin and .kg files are the release and are committed)
 src/xst/

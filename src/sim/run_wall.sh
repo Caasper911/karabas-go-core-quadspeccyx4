@@ -22,8 +22,10 @@ MINGW*|MSYS*|CYGWIN*)
 esac
 mkdir -p work_w
 DEFS="-d CLOCKS=$CLOCKS -d SEED=${SEED:-1} ${FUSE_DEFS}"
+[ "${DIVMMC:-0}" = 1 ] && DEFS="$DEFS -d DIVMMC"
 if [ "${ROM:-0}" = 1 ]; then
 	$PY ../../tools/rom2hex.py ../roms/128.rom ../roms/48.rom work_w/roms.hex
+	$PY -c "import sys; open(sys.argv[2], 'w').write('\n'.join('%02x' % b for b in open(sys.argv[1], 'rb').read()) + '\n')" ../roms/esxdos089.bin work_w/esx.hex
 	DEFS="$DEFS -d MODE_ROM"
 	[ "${SAME:-0}" = 1 ] && DEFS="$DEFS -d SAME_START"
 fi
@@ -36,6 +38,8 @@ verilog work "../../rtl/tv80/tv80o_reg.v"
 verilog work "../../rtl/tv80/tv80o_core.v"
 verilog work "../../rtl/zx/zx_timing.v"
 verilog work "../../rtl/zx/zx_oct.v"
+verilog work "../../rtl/sd/sd_oct.v"
+verilog work "../../../modules/rtl/mem/kg_tdpram.v"
 verilog work "../../rtl/mem/sram_ctrl.v"
 verilog work "../../rtl/mem/sram_arb.v"
 verilog work "../sram_model.v"

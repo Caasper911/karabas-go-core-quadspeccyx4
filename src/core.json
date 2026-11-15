@@ -15,19 +15,23 @@
         {
             "filename": "roms/48.rom",
             "address": 16384
+        },
+        {
+            "filename": "roms/esxdos089.bin",
+            "address": 32768
         }
     ],
     "boards": {
         "go": {
-            "build": "26111504",
+            "build": "26111505",
             "bitstream": "karabas_go.bin"
         },
         "mini": {
-            "build": "26111504",
+            "build": "26111505",
             "bitstream": "karabas_mini.bin"
         },
         "minig": {
-            "build": "26111504",
+            "build": "26111505",
             "bitstream": "karabas_minig.bin"
         }
     },
@@ -155,6 +159,30 @@
                 "All"
             ],
             "default": 0
+        },
+        {
+            "index": 12,
+            "type": "S",
+            "name": "DivMMC",
+            "options": [
+                "Off",
+                "On"
+            ],
+            "default": 1
+        },
+        {
+            "type": "F",
+            "key": "sdimg",
+            "name": "SD image",
+            "slot": 0,
+            "exts": [
+                "img",
+                "mmc",
+                "hdf",
+                "vhd",
+                "bin"
+            ],
+            "dir": "/zx"
         },
         {
             "type": "-"

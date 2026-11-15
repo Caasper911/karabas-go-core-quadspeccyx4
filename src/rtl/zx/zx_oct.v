@@ -14,11 +14,14 @@
 
  Memory. One request a clock at most (only machine slot - 1 asks): m_req for one clock, a read at the start of T1 (bus
  slot), a write at the start of T2; the CPU takes the data of a read at the end of T2, 15 clocks after the request,
- so no WAIT: the RAM of machine m is 128 KB of SRAM at byte {BASE, m, page, offset}, its data comes back whenever the
- SRAM arbiter (sram_arb.v, a queue for two engines) has it: m_rv with the machine m_rm and the byte m_rd (the context
- ramd of the machine; late if it was not there in time). The ROM (128 editor and 48 BASIC, 32 KB) is a block RAM of
- the engine (rom_we: the loader), its data 3 clocks after the bus slot (the context romd); fromrom of the machine
- tells which of the two the CPU takes (the last read, also in cycles without a read).
+ so no WAIT. All memory is in the SRAM (byte address, 22 bits), ROM and RAM alike; the data of a read comes back
+ whenever the SRAM arbiter (sram_arb.v, a queue for two engines) has it: m_rv with the machine m_rm and the byte m_rd
+ (the context ramd of the machine; late if it was not there in time):
+   {0, BASE[0], m, page, offset 14}       the 128 KB of RAM of machine m
+   {1, BASE[0], m, bank 4, offset 13}     the 128 KB of the DivMMC of machine m (machine 7 of engine 1, the 16th: 64 KB,
+                                          banks 0..7: its banks 8..15 are the ROMs)
+   {1, 1, 111, 1, rom 16}                 the ROMs, shared: 0000 128 editor, 4000 48 BASIC, 8000 ESXDOS (8 KB); written
+                                          by the loader of the core (not through here)
 
  Ports as Pentagon 128: #FE (A0 = 0: border, MIC, beeper; read: the keyboard of the selected machine sel, or of all with
  keys_all, and the tape input of the machine, tape_in[b]), #7FFD
@@ -27,6 +30,15 @@
  of the raster as the CPU of slot 0 sees it (every machine in the same relation to its INT, as raster_delay of
  QuadSpeccy). The data of an I/O read is taken in each bus slot of the cycle (the last one before the CPU takes it
  counts), FF in the acknowledge M1 of an interrupt (IM 2 vectors from the bus: FF, Pentagon).
+
+ DivMMC (divmmc_en; as pentagon.v of QuadSpeccy, after divmmc.vhd of divgmx): #E3 (7 CONMEM, 6 MAPRAM, 5..0 the bank
+ at 2000; 3..0 used, 128 KB), #E7 (bit 0 the card select), #EB (SPI: a write sends the byte, a read gives the byte of
+ the exchange before and sends FF; the card: sd_oct.v, sd_en; an I/O read of #EB waits (WAIT) while the card
+ waits for the image). Mapped (CONMEM or automap): 0000-1FFF
+ the ESXDOS ROM (with MAPRAM: bank 3, read only), 2000-3FFF the bank (read only with MAPRAM and bank 3). Automap: an
+ opcode fetch of 0000, 0008, 0038, 0066, 04C6, 0562 sets detect, of 1FF8-1FFF clears it, of 3D00-3DFF maps at once
+ (the fetch itself, any ROM); out of the M1 read automap follows detect. A reset of the machine keeps the DivMMC (a
+ reset with NMI held clears #E3 and the card select); dv_clear (power on) and DivMMC off clear all.
 
  src/sim/tb_wall.v compares the eight machines with eight tv80_core on a behavioural bus, clock for clock.
 */
@@ -54,14 +66,26 @@ module zx_oct #(
 	output reg m_we = 1'b0,
 	output reg [21:0] m_addr = 22'd0,    // byte
 	output reg [7:0] m_din = 8'd0,
+	output reg [2:0] m_m = 3'd0,         // the machine of the request (its read comes back to it)
 	input wire m_rv,
 	input wire [2:0] m_rm,
 	input wire [7:0] m_rd,
 
-	// ROM loader (32 KB: 0..3FFF 128 editor, 4000..7FFF 48 BASIC)
-	input wire rom_we,
-	input wire [14:0] rom_wa,
-	input wire [7:0] rom_wd,
+	// DivMMC
+	input wire divmmc_en,
+	input wire dv_clear,                 // the state of the DivMMC of every machine cleared (power on; hold 1 T or more)
+	// the SD cards (sd_oct): sd_en 0 none (#EB gives FF); h_* sd_host
+	input wire sd_en,
+	input wire [21:0] sd_csize,
+	output wire [7:0] h_pend,
+	output wire [7:0] h_wr,
+	input wire [2:0] h_m,
+	output wire [31:0] h_lba,
+	input wire h_done,
+	input wire h_we,
+	input wire [8:0] h_a,
+	input wire [7:0] h_d,
+	output wire [7:0] h_q,
 
 	// per machine
 	output reg [7:0] beeper = 8'd0,
@@ -99,13 +123,18 @@ reg [2:0] c_border [0:7];
 reg c_wrdone [0:7];               // the write / port write of this M-cycle is made
 reg c_rd [0:7];                   // this M-cycle reads memory
 reg c_t2 [0:7];                   // the CPU is in T2: it takes its data at its next cen
-reg c_src [0:7];                  // its data: 1 c_pdat (port, FF), 0 the memory (c_fromrom ? c_romd : c_ramd)
+reg c_src [0:7];                  // its data: 1 c_pdat (port, FF), 0 the memory (c_ramd)
 reg [7:0] c_pdat [0:7];
 reg c_iss [0:7];                  // toggles: a read of the SRAM made (bus logic) / its data written: pending = differ
 reg c_ret [0:7];
-reg [7:0] c_romd [0:7];           // the byte of the last read of the ROM
-reg [7:0] c_ramd [0:7];           // the byte of the last read of the SRAM
-reg c_fromrom [0:7];              // the last read was of the ROM
+reg [7:0] c_ramd [0:7];           // the byte of the last read of the memory
+reg c_conmem [0:7];               // DivMMC: #E3 bit 7
+reg c_mapram [0:7];               // #E3 bit 6 (sticky)
+reg [3:0] c_dvbank [0:7];         // #E3 bits 3..0
+reg c_automap [0:7];
+reg c_detect [0:7];
+reg c_cs_n [0:7];                 // the card select (#E7 bit 0), 1 deselected
+reg c_ebw [0:7];                  // an I/O read of #EB waits for the card (WAIT of the CPU)
 reg [7:0] c_di [0:7];             // DI of the CPU (T80se: the data of T2 kept)
 reg [3:0] c_ayreg [0:7];
 reg c_ayrv [0:7];                 // the register select had 0 in bits 7..4 (else the AY is not addressed)
@@ -114,8 +143,10 @@ reg [7:0] ay_ram [0:127];         // {machine, register}
 initial begin
 	for (i = 0; i < 8; i = i + 1) begin
 		c_7ffd[i] = 6'd0; c_border[i] = 3'd0; c_wrdone[i] = 1'b0; c_rd[i] = 1'b0; c_t2[i] = 1'b0; c_src[i] = 1'b0;
-		c_pdat[i] = 8'hFF; c_iss[i] = 1'b0; c_ret[i] = 1'b0; c_romd[i] = 8'hFF; c_ramd[i] = 8'hFF; c_fromrom[i] = 1'b1; c_di[i] = 8'hFF; c_ayreg[i] = 4'd0;
+		c_pdat[i] = 8'hFF; c_iss[i] = 1'b0; c_ret[i] = 1'b0; c_ramd[i] = 8'hFF; c_di[i] = 8'hFF; c_ayreg[i] = 4'd0;
 		c_ayrv[i] = 1'b1; c_ayclr[i] = 4'd0;
+		c_conmem[i] = 1'b0; c_mapram[i] = 1'b0; c_dvbank[i] = 4'd0; c_automap[i] = 1'b0; c_detect[i] = 1'b0;
+		c_cs_n[i] = 1'b1; c_ebw[i] = 1'b0;
 	end
 	for (i = 0; i < 128; i = i + 1) ay_ram[i] = 8'd0;
 end
@@ -135,7 +166,7 @@ always @(posedge clk)
 		int_t <= int_n;
 wire c_int_n = (slot == 3'd0) ? int_n : int_t;
 
-wire [7:0] c_dinst = c_src[th] ? c_pdat[th] : c_fromrom[th] ? c_romd[th] : c_ramd[th];
+wire [7:0] c_dinst = c_src[th] ? c_pdat[th] : c_ramd[th];
 
 wire [15:0] p_A;
 wire [7:0] p_dout;
@@ -148,7 +179,7 @@ tv80o_core #(.Mode(0), .IOWait(1)) core (
 	.reset_n(~reset[th]),
 	.clk(clk),
 	.cen(1'b1),
-	.wait_n(1'b1),
+	.wait_n(~c_ebw[th]),
 	.int_n(c_int_n),
 	.nmi_n(~nmi[th]),
 	.busrq_n(1'b1),
@@ -166,7 +197,7 @@ always @(posedge clk) begin
 		c_di[th] <= c_dinst;
 	if (reset[th])
 		late[th] <= 1'b0;
-	else if (c_t2[th] && c_rd[th] && !c_src[th] && !c_fromrom[th] && (c_iss[th] != c_ret[th]))
+	else if (c_t2[th] && c_rd[th] && !c_src[th] && (c_iss[th] != c_ret[th]))
 		late[th] <= 1'b1;
 end
 
@@ -181,9 +212,46 @@ wire io_rd = ~m1 & p_iorq & ~p_write;
 wire io_wr = ~m1 & p_iorq & p_write;
 
 wire [5:0] b7ffd = c_7ffd[b];
-wire is_rom = (p_A[15:14] == 2'b00);
 wire [2:0] page = (p_A[15:14] == 2'b01) ? 3'd5 : (p_A[15:14] == 2'b10) ? 3'd2 : b7ffd[2:0];
-wire [21:0] ram_addr = {BASE, b, page, p_A[13:0]};
+
+// the DivMMC of machine b: mapped by CONMEM, automap or this opcode fetch of 3Dxx
+wire dv_instant = m1 & p_intcycle_n & (p_A[15:8] == 8'h3D);
+wire dv_mapped = divmmc_en & (c_conmem[b] | c_automap[b] | dv_instant);
+wire last_m = BASE[0] && b == 3'd7;              // the 16th machine: 64 KB of DivMMC (banks 0..7)
+wire [3:0] dv_bank = last_m ? {1'b0, c_dvbank[b][2:0]} : c_dvbank[b];
+
+// the memory map: the byte of the SRAM, read only
+reg [21:0] mem_addr;
+reg mem_ro;
+always @* begin
+	mem_ro = 1'b0;
+	if (dv_mapped && p_A[15:13] == 3'b000) begin
+		mem_ro = 1'b1;
+		mem_addr = c_mapram[b] ? {1'b1, BASE[0], b, 4'd3, p_A[12:0]} : {6'b111111, 3'b100, p_A[12:0]};
+	end else if (dv_mapped && p_A[15:13] == 3'b001) begin
+		mem_ro = c_mapram[b] && c_dvbank[b] == 4'd3;
+		mem_addr = {1'b1, BASE[0], b, dv_bank, p_A[12:0]};
+	end else if (p_A[15:14] == 2'b00) begin
+		mem_ro = 1'b1;
+		mem_addr = {6'b111111, 1'b0, b7ffd[4], p_A[13:0]};        // ROM 128 / 48
+	end else
+		mem_addr = {1'b0, BASE[0], b, page, p_A[13:0]};
+end
+wire dv_entry = p_A == 16'h0000 || p_A == 16'h0008 || p_A == 16'h0038 || p_A == 16'h0066 ||
+	p_A == 16'h04C6 || p_A == 16'h0562;
+wire dv_exit = p_A[15:3] == 13'b0001111111111;   // 1FF8-1FFF
+wire dv_port = divmmc_en && p_A[7:0] == 8'hEB;
+// the card of machine b: the exchange of this clock (xfer, tx), the byte of the last one (sd_q), busy: it waits
+reg sd_xfer;
+reg [7:0] sd_tx;
+wire [7:0] sd_q;
+wire sd_busy;
+sd_oct sd (
+	.clk(clk), .b(b), .rst(reset[b]), .clr(dv_clear | ~divmmc_en | ~sd_en), .xfer(sd_xfer), .tx(sd_tx),
+	.cs_n(c_cs_n[b]), .q(sd_q), .busy(sd_busy), .c_size(sd_csize),
+	.h_pend(h_pend), .h_wr(h_wr), .h_m(h_m), .h_lba(h_lba), .h_done(h_done), .h_we(h_we), .h_a(h_a), .h_d(h_d),
+	.h_q(h_q)
+);
 wire is_sel = sel_en && (b == sel);
 wire has_keys = is_sel || keys_all;    // the keyboard and Kempston
 
@@ -207,6 +275,8 @@ always @* begin
 		port_q = c_ayrv[b] ? ay_q : 8'hFF;
 	else if (p_A[7:0] == 8'h1F)
 		port_q = has_keys ? kempston : 8'h00;
+	else if (dv_port)
+		port_q = sd_q;
 	else
 		port_q = 8'hFF;
 end
@@ -221,19 +291,12 @@ function [7:0] ay_mask;
 	endcase
 endfunction
 
-// the ROM: block RAM, read in the clock after the bus slot, its data delayed to the latency of the SRAM
-(* ram_style = "block" *) reg [7:0] rom [0:32767];
-reg [14:0] rom_ra = 15'd0;
-reg [7:0] rom_q1 = 8'hFF, rom_q2 = 8'hFF;
-always @(posedge clk) begin
-	if (rom_we)
-		rom[rom_wa] <= rom_wd;
-	rom_q1 <= rom[rom_ra];
-end
-
 // the next contexts of machine b (written in its bus slot, one write of each a clock)
 reg [5:0] n_7ffd;
-reg n_wrdone, n_rd, n_t2, n_src, n_iss, n_ayrv, n_ay_we, n_fromrom;
+reg n_wrdone, n_rd, n_t2, n_src, n_iss, n_ayrv, n_ay_we;
+reg n_conmem, n_mapram, n_automap, n_detect, n_cs_n;
+reg [3:0] n_dvbank;
+reg n_ebw;
 reg [7:0] n_pdat, n_ay_d;
 reg [2:0] n_border;
 reg [3:0] n_ayreg, n_ayclr;
@@ -246,7 +309,15 @@ always @* begin
 	n_src = 1'b0;
 	n_pdat = c_pdat[b];
 	n_iss = c_iss[b];
-	n_fromrom = c_fromrom[b];
+	n_conmem = c_conmem[b];
+	n_mapram = c_mapram[b];
+	n_dvbank = c_dvbank[b];
+	n_automap = c_automap[b];
+	n_detect = c_detect[b];
+	n_cs_n = c_cs_n[b];
+	n_ebw = 1'b0;
+	sd_xfer = 1'b0;
+	sd_tx = 8'hFF;
 	n_border = c_border[b];
 	n_ayreg = c_ayreg[b];
 	n_ayrv = c_ayrv[b];
@@ -269,11 +340,32 @@ always @* begin
 		n_ay_we = 1'b1;
 		n_ay_a = {b, c_ayclr[b]};
 		n_ay_d = 8'd0;
+		// the DivMMC is kept over a reset, but with NMI held (ESXDOS without its state) #E3 and the card select
+		if (nmi[b]) begin
+			n_conmem = 1'b0;
+			n_mapram = 1'b0;
+			n_dvbank = 4'd0;
+			n_cs_n = 1'b1;
+		end
 	end else begin
+		// DivMMC automap: in the M1 read (T1, T2) by the address, out of it automap follows detect
+		if (m1 && p_intcycle_n && (t1 || t2)) begin
+			if (dv_entry)
+				n_detect = 1'b1;
+			else if (dv_exit)
+				n_detect = 1'b0;
+			else if (p_A[15:8] == 8'h3D) begin
+				n_automap = 1'b1;
+				n_detect = 1'b1;
+			end
+		end else
+			n_automap = c_detect[b];
 		// the data the CPU will take: a port, FF in the acknowledge M1, else the memory
 		if (io_rd) begin
 			n_src = 1'b1;
-			n_pdat = port_q;
+			// (#EB: not after its exchange in this cycle, that gave c_spi the byte of the next one)
+			if (!(dv_port && c_wrdone[b]))
+				n_pdat = port_q;
 		end else if (m1 && !p_intcycle_n) begin
 			n_src = 1'b1;
 			n_pdat = 8'hFF;
@@ -282,11 +374,8 @@ always @* begin
 		if (t1) begin
 			n_wrdone = 1'b0;
 			n_rd = mem_rd;
-			if (mem_rd) begin
-				n_fromrom = is_rom;
-				if (!is_rom)
-					n_iss = ~c_iss[b];
-			end
+			if (mem_rd)
+				n_iss = ~c_iss[b];
 		end
 		if (t3)
 			n_rd = 1'b0;
@@ -307,25 +396,47 @@ always @* begin
 				// AY: a write of #BFFD
 				if (ay_port && !p_A[14] && c_ayrv[b])
 					n_ay_we = 1'b1;
+				// DivMMC
+				if (divmmc_en && p_A[7:0] == 8'hE3) begin
+					n_conmem = p_dout[7];
+					n_mapram = c_mapram[b] | p_dout[6];
+					n_dvbank = p_dout[3:0];
+				end
+				if (divmmc_en && p_A[7:0] == 8'hE7)
+					n_cs_n = p_dout[0];
+				if (dv_port) begin
+					sd_xfer = 1'b1;                      // the exchange of a write
+					sd_tx = p_dout;
+				end
+			end
+			// the exchange of a read of #EB (the CPU has taken sd_q, the byte of the exchange before); while
+			// the card waits for the image the CPU waits (T2 again)
+			if (io_rd && dv_port) begin
+				if (sd_busy)
+					n_ebw = 1'b1;
+				else begin
+					n_wrdone = 1'b1;
+					sd_xfer = 1'b1;
+				end
 			end
 		end
 	end
+	// power on, DivMMC off
+	if (dv_clear || !divmmc_en) begin
+		n_conmem = 1'b0;
+		n_mapram = 1'b0;
+		n_dvbank = 4'd0;
+		n_automap = 1'b0;
+		n_detect = 1'b0;
+		n_cs_n = 1'b1;
+		n_ebw = 1'b0;
+	end
 end
-
-// the returns of the ROM: the machine, three clocks after the bus slot
-reg [2:0] r_m1 = 3'd0, r_m2 = 3'd0, r_m3 = 3'd0;
-reg r_v1 = 1'b0, r_v2 = 1'b0, r_v3 = 1'b0;
 
 always @(posedge clk) begin
 	m_req <= 1'b0;
 	m_we <= 1'b0;
 	ay_we <= 1'b0;
-
-	r_v1 <= 1'b0;
-	r_m1 <= b;
-	{r_v2, r_m2} <= {r_v1, r_m1};
-	{r_v3, r_m3} <= {r_v2, r_m2};
-	rom_q2 <= rom_q1;
 
 	// the contexts of machine b: one write of each a clock (n_*, below). XST 14.7 got a context written in both
 	// branches of "if (reset) ... else ..." wrong: c_t2 became a RAM written only when its data was 0 (found by the
@@ -337,7 +448,13 @@ always @(posedge clk) begin
 	c_src[b] <= n_src;
 	c_pdat[b] <= n_pdat;
 	c_iss[b] <= n_iss;
-	c_fromrom[b] <= n_fromrom;
+	c_conmem[b] <= n_conmem;
+	c_mapram[b] <= n_mapram;
+	c_dvbank[b] <= n_dvbank;
+	c_automap[b] <= n_automap;
+	c_detect[b] <= n_detect;
+	c_cs_n[b] <= n_cs_n;
+	c_ebw[b] <= n_ebw;
 	c_border[b] <= n_border;
 	c_ayreg[b] <= n_ayreg;
 	c_ayrv[b] <= n_ayrv;
@@ -357,7 +474,7 @@ always @(posedge clk) begin
 		if (is_sel) begin
 			if (m1 && t1 && p_intcycle_n) begin
 				dbg_pc <= p_A;
-				if (!is_rom) dbg_ev[4] <= 1'b1;
+				if (p_A[15:14] != 2'b00) dbg_ev[4] <= 1'b1;
 			end
 			if (m1 && t1 && !p_intcycle_n) dbg_ev[5] <= 1'b1;
 			if (t2 && !c_wrdone[b]) begin
@@ -370,20 +487,17 @@ always @(posedge clk) begin
 
 		// T1: the read
 		if (t1 && mem_rd) begin
-			r_v1 <= is_rom;
-			rom_ra <= {b7ffd[4], p_A[13:0]};
-			if (!is_rom) begin
-				m_req <= 1'b1;
-				m_addr <= ram_addr;
-			end
+			m_req <= 1'b1;
+			m_addr <= mem_addr;
+			m_m <= b;
 		end
 
 		// T2: the write, #FE
 		if (t2 && !c_wrdone[b]) begin
-			if (mem_wr && !is_rom) begin
+			if (mem_wr && !mem_ro) begin
 				m_req <= 1'b1;
 				m_we <= 1'b1;
-				m_addr <= ram_addr;
+				m_addr <= mem_addr;
 				m_din <= p_dout;
 			end
 			if (io_wr && !p_A[0]) begin
@@ -393,9 +507,7 @@ always @(posedge clk) begin
 		end
 	end
 
-	// the returns: the ROM read of 3 clocks before, a byte of the SRAM
-	if (r_v3)
-		c_romd[r_m3] <= rom_q2;
+	// the return of a read
 	if (m_rv) begin
 		c_ret[m_rm] <= ~c_ret[m_rm];
 		c_ramd[m_rm] <= m_rd;

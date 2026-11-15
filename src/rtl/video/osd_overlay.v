@@ -153,22 +153,38 @@ reg [12:0] W = 13'd0, H = 13'd0;          // its size on the screen
 reg [23:0] fg = 24'hFFFFFF, bg = 24'd0;
 reg [1:0] alpha = 2'd2;
 
-wire [3:0] s_auto = (s_force != 4'd0) ? s_force : (SCALE != 0) ? SCALE[3:0] :
-	(aw >= 12'd1280 && ah >= 12'd640) ? 4'd4 :
-	(aw >= 12'd1024 && ah >= 12'd512) ? 4'd3 :
-	(aw >= 12'd512 && ah >= 12'd256) ? 4'd2 : 4'd1;
+// speccywall: the geometry in three register stages, every clock (its inputs are static during a frame: the settings,
+// aw / ah change at a line end / the frame start, the frame start takes the stages as they were; as one combinational
+// chain from the switches of clk_bus it was the longest path of pclk, -0.7 ns on the Mini)
+reg [3:0] s_auto = 4'd1, sx_auto = 4'd1;
+always @(posedge clk) begin
+	s_auto <= (s_force != 4'd0) ? s_force : (SCALE != 0) ? SCALE[3:0] :
+		(aw >= 12'd1280 && ah >= 12'd640) ? 4'd4 :
+		(aw >= 12'd1024 && ah >= 12'd512) ? 4'd3 :
+		(aw >= 12'd512 && ah >= 12'd256) ? 4'd2 : 4'd1;
+	sx_auto <= (sx_force != 4'd0) ? sx_force : (s_force != 4'd0) ? s_force : (SCALE != 0) ? SCALE[3:0] :
+		(aw >= 12'd1280 && ah >= 12'd640) ? 4'd4 :
+		(aw >= 12'd1024 && ah >= 12'd512) ? 4'd3 :
+		(aw >= 12'd512 && ah >= 12'd256) ? 4'd2 : 4'd1;
+end
 wire [8:0] ww_n = popup_now ? { pw_v, 3'b000 } : 9'd256;
 wire [8:0] wh_n = popup_now ? { 1'b0, ph_v, 3'b000 } : 9'd128;
-wire [3:0] sx_auto = (sx_force != 4'd0) ? sx_force : s_auto;    // speccywall
-wire [12:0] W1 = ww_n * sx_auto;
-wire [12:0] H1 = wh_n * s_auto;
+reg [12:0] W1 = 13'd0, H1 = 13'd0;
+always @(posedge clk) begin
+	W1 <= ww_n * sx_auto;
+	H1 <= wh_n * s_auto;
+end
 wire [12:0] W2 = { W1[11:0], 1'b0 };
 wire [12:0] H2 = { H1[11:0], 1'b0 };
 wire zoom_fits = popup_now && zoom_v && W2 <= { 1'b0, aw } && H2 <= { 1'b0, ah };
-wire [3:0] s_n = zoom_fits ? { s_auto[2:0], 1'b0 } : s_auto;
-wire [3:0] sx_n = zoom_fits ? { sx_auto[2:0], 1'b0 } : sx_auto;   // speccywall
-wire [12:0] W_n = zoom_fits ? W2 : W1;
-wire [12:0] H_n = zoom_fits ? H2 : H1;
+reg [3:0] s_n = 4'd1, sx_n = 4'd1;
+reg [12:0] W_n = 13'd0, H_n = 13'd0;
+always @(posedge clk) begin
+	s_n <= zoom_fits ? { s_auto[2:0], 1'b0 } : s_auto;
+	sx_n <= zoom_fits ? { sx_auto[2:0], 1'b0 } : sx_auto;
+	W_n <= zoom_fits ? W2 : W1;
+	H_n <= zoom_fits ? H2 : H1;
+end
 wire signed [13:0] margin = $signed({ 7'd0, s_n, 3'b000 }); // 8 OSD pixels from the top / bottom
 
 always @(posedge clk)
