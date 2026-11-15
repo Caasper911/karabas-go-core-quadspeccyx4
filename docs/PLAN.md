@@ -125,6 +125,11 @@
 - [x] OSD как в QuadSpeccy: Tape in (Board / Core), Tape out (Core 1..16), Keys to (Selected / All в стене)
 - [x] Железо: Tape in / Tape out / Keys to работают (2026-11-15)
 
+- [x] F12 / Win+F12 гасили HDMI на Mini на пару секунд: прошивка на пункт OSD с именем «Rese…» сбрасывает FT812; пункты
+      теперь «Z80 Reset» / «Z80 Reset All», самотест SRAM — только при старте
+- [x] Бордюр на 2 точки левее paper (RageEnd): цвет бордюра в `zx_scr` на 1 T позже; `run_sna.sh` рисует кадр
+- [ ] Железо: сброс без потери картинки на Mini / Mini G, бордюр в RageEnd
+
 ## Открытые вопросы
 
 - [x] SRAM на Mini и Mini G есть: её использует karabas-go-core-tsconf на всех трёх платах.

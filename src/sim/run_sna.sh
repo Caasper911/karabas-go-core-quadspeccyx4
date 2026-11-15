@@ -26,6 +26,7 @@ verilog work "../../rtl/zx/zx_timing.v"
 verilog work "../../rtl/zx/zx_oct.v"
 verilog work "../../rtl/mem/sram_ctrl.v"
 verilog work "../../rtl/mem/sram_arb.v"
+verilog work "../../rtl/video/zx_scr.v"
 verilog work "../sram_model.v"
 verilog work "../tb_sna.v"
 PRJ
@@ -33,4 +34,5 @@ cd work_s
 fuse -intstyle silent -prj tb.prj -o $EXE -d FRAMES=${2:-5} work.tb_sna > fuse.log 2>&1 || { grep -E "ERROR" fuse.log | head -20; exit 1; }
 printf 'run all\nquit\n' > run.tcl
 $EXE -intstyle silent -tclbatch run.tcl | tee sim.log | grep -vE "^(Stopped|INFO|WARNING|ISim|This is|Time res|Simulator|Finished|---|\s*$)" | grep -v "^ " | head -40
+[ -f screen.hex ] && $PY ../../../tools/render_frame.py screen.hex screen.png
 grep -q "tb_sna:" sim.log

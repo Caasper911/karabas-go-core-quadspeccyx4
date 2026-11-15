@@ -148,7 +148,7 @@ endgenerate
 
 integer i, sa;
 `ifdef SNA
-reg [15:0] ramw [0:24575];
+reg [15:0] ramw [0:65535];
 `endif
 initial begin
 	for (i = 0; i < (1 << 21); i = i + 1) begin
@@ -157,10 +157,9 @@ initial begin
 	end
 `ifdef SNA
 	$readmemh("ram.hex", ramw);
-	for (i = 0; i < 24576; i = i + 1) begin
-		sa = 16'h4000 + 2 * i;
-		g_mem[0].model.mem[{2'b00, 3'd0, (sa < 16'h8000) ? 3'd5 : (sa < 16'hC000) ? 3'd2 : 3'd0, sa[13:1]}] = ramw[i];
-		g_mem[1].model.mem[{2'b00, 3'd0, (sa < 16'h8000) ? 3'd5 : (sa < 16'hC000) ? 3'd2 : 3'd0, sa[13:1]}] = ramw[i];
+	for (i = 0; i < 65536; i = i + 1) begin            // the 8 pages of machine 0
+		g_mem[0].model.mem[{2'b00, 3'd0, i[15:0]}] = ramw[i];
+		g_mem[1].model.mem[{2'b00, 3'd0, i[15:0]}] = ramw[i];
 	end
 `endif
 end

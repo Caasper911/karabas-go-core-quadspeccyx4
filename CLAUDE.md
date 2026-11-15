@@ -101,7 +101,7 @@ milestone 5 (Mini / Mini G) done: works on all three boards (2026-11-15).
   memory, the CPU port of the SRAM as busy as eight machines make it; `MODE=0` 720 x 576, `STRIPES=1`, `SCR7=1`,
   `BUSY=0`, `WALL=1` the wall (wall_fetch, 8 machines with their own page and border, `SEL`). About 30 s per frame.
 - `src/sim/run_int.sh [frames]` (`SHORT=1`): the frame interrupt of the 16 machines: position (17988 T before the
-  paper), 32 T, period, acknowledges per frame. `src/sim/run_sna.sh <file.sna> [frames]`: a 48K snapshot
+  paper), 32 T, period, acknowledges per frame. `src/sim/run_sna.sh <file.sna> [frames]`: a 48K or 128K snapshot (the picture of each frame in work_s/screen.png)
   (`tools/sna2sim.py`: the RAM into machine 0, a 48 ROM with a loader of the registers in place of SA-BYTES) on the
   two engines; per frame the acknowledges and the ports. `src/sim/run_r.sh`: the R register of tv80_core against
   the Z80 (tv80 had no R without TV80_REFRESH: LD A,R = 0, fixed 2026-11-15; the tests compare R now).

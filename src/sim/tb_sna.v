@@ -40,7 +40,7 @@ always @(posedge clk_bus)
 
 // the ROM (words) and the RAM of machine 0 (pages 5, 2, 0 = 4000..FFFF)
 reg [15:0] romw [0:16383];
-reg [15:0] ramw [0:24575];
+reg [15:0] ramw [0:65535];
 reg [7:0] rom [0:32767];
 integer i, a;
 initial begin
@@ -50,10 +50,8 @@ initial begin
 		rom[2*i] = romw[i][7:0];
 		rom[2*i+1] = romw[i][15:8];
 	end
-	for (i = 0; i < 24576; i = i + 1) begin
-		a = 16'h4000 + 2 * i;
-		model.mem[{2'b00, 3'd0, (a < 16'h8000) ? 3'd5 : (a < 16'hC000) ? 3'd2 : 3'd0, a[13:1]}] = ramw[i];
-	end
+	for (i = 0; i < 65536; i = i + 1)
+		model.mem[{2'b00, 3'd0, i[15:0]}] = ramw[i];          // page i / 8192 of machine 0
 end
 
 integer n = 0;
@@ -112,10 +110,34 @@ wire [1:0] MRD_N, MWR_N;
 sram_ctrl sram (
 	.clk_bus(clk_bus), .clk_sys(clk_sys),
 	.c_req(c_req), .c_we(c_we), .c_addr(c_addr), .c_din(c_din),
-	.v_req(1'b0), .v_addr(21'd0), .v_ack(), .q(q),
+	.v_req(v_req), .v_addr(v_addr), .v_ack(v_ack), .q(q),
 	.MA(MA), .MD(MD), .MRD_N(MRD_N), .MWR_N(MWR_N)
 );
 sram_model model (.A(MA), .DQ(MD), .RD_N(MRD_N), .WR_N(MWR_N), .drv(sram.md_oe[0]));
+
+// the picture of machine 0 as the full screen shows it (its raster: zx_timing, slot 0), each frame into screen.hex
+wire v_req, v_ack;
+wire [20:0] v_addr;
+wire [3:0] pix;
+zx_scr scr (
+	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .flash(frame[4]),
+	.m(4'd0), .scr7(g_eng[0].eng.v_scr7), .border(g_eng[0].eng.v_border), .diag_en(1'b0), .diag(96'd0),
+	.v_req(v_req), .v_addr(v_addr), .v_ack(v_ack), .q(q), .pix(pix)
+);
+reg [8:0] h1 = 0, h2 = 0, v1 = 0, v2 = 0;
+reg [3:0] fb [0:143359];
+integer fd, fi;
+always @(posedge clk_bus)
+	if (ce7) begin
+		{h2, h1} <= {h1, hc};
+		{v2, v1} <= {v1, vc};
+		fb[v2 * 448 + h2] <= pix;
+		if (vc == 9'd0 && hc == 9'd2 && n > 600000) begin
+			fd = $fopen("screen.hex", "w");
+			for (fi = 0; fi < 143360; fi = fi + 1) $fdisplay(fd, "%h", fb[fi]);
+			$fclose(fd);
+		end
+	end
 
 // ---------------------------------------------------------------------------------------------
 // machine 0: the acknowledges, the ports per frame

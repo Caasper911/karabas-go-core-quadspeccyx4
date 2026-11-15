@@ -379,19 +379,17 @@ assign v_req = show_full ? s_req : w_req;
 assign v_addr = show_full ? s_addr : w_addr;
 assign v_m = show_full ? sel : w_m;
 
-// the self test of the SRAM (bring-up): after the start of the core and at Reset All (OSD, Menu+F12, button 1), the
-// machines in reset meanwhile
+// the self test of the SRAM (bring-up): after the start of the core only (at Reset All it held the machines and the
+// video port 0.2 s; the user wants Reset All to reset the Z80s only), the machines in reset meanwhile
 wire mt_done, mt_ok, mt_req, mt_we;
 wire [15:0] mt_bad;
 wire [20:0] mt_first;
 wire [21:0] mt_addr;
 wire [7:0] mt_din;
-reg areset_d = 1'b1, rall_d = 1'b0;
-always @(posedge clk_bus) begin
+reg areset_d = 1'b1;
+always @(posedge clk_bus)
 	areset_d <= areset;
-	rall_d <= sw_reset_all | hw_btn[1];
-end
-wire mt_start = (areset_d & ~areset) | ((sw_reset_all | hw_btn[1]) & ~rall_d);
+wire mt_start = areset_d & ~areset;
 
 sram_test #(.AW(MEMTEST_AW)) mtest(
 	.clk(clk_bus), .start(mt_start),

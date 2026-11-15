@@ -17,7 +17,10 @@
  The raster is that of machine m: zx_timing delayed by m clocks (speccywall.v), so border effects and multicolour are
  exact.
 
- pix is the colour of the pixel hc / vc of two ce7 before (as pentagon.v), {bright, G, R, B}.
+ pix is the colour of the pixel hc / vc of two ce7 before (as pentagon.v), {bright, G, R, B}. The border colour goes
+ through two more ce7 (one T-state): zx_oct writes #FE at the start of T2 of the OUT, the Pentagon shows the new
+ colour two pixels later; without it the border effects of RageEnd stood 2 pixels left of the paper they continue
+ (src/sim/run_sna.sh, 2026-11-15).
 
  Diagnostics (diag_en): six rows of 16 squares, four in the top border (lines 284, 292, 300, 308) and two in the
  bottom one (196, 204), 6 lines each, squares 12 x 6 pixels every 16 from hc 0; row r shows diag[r*16 +: 16], bit 15
@@ -107,7 +110,7 @@ reg [7:0] shreg = 8'd0;
 reg [7:0] attr_r = 8'd0;
 reg pap_r = 1'b0, blank_r = 1'b0;
 reg [2:0] brd_r = 3'd0;
-
+reg [2:0] brd_d1 = 3'd0, brd_d2 = 3'd0;     // the border one T-state later
 // the diagnostics square of this pixel
 wire dg_top = vc >= 9'd284 && vc < 9'd314;
 wire dg_bot = vc >= 9'd196 && vc < 9'd210;
@@ -121,7 +124,9 @@ always @(posedge clk)
 	if (ce7) begin
 		pap_r <= paper;
 		blank_r <= blank;
-		brd_r <= border;
+		brd_d1 <= border;
+		brd_d2 <= brd_d1;
+		brd_r <= brd_d2;
 		if (paper && hc[2:0] == 3'd0) begin
 			shreg <= hc[3] ? bmp_w[15:8] : bmp_w[7:0];
 			attr_r <= hc[3] ? atr_w[15:8] : atr_w[7:0];
