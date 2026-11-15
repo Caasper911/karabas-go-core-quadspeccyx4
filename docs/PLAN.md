@@ -122,7 +122,7 @@
 - [x] Железо: Starriders II с исправленным R работает как в эмуляторе (2026-11-15)
 
 - [x] OSD как в QuadSpeccy: Tape in (Board / Core), Tape out (Core 1..16), Keys to (Selected / All в стене)
-- [ ] Железо: Tape in / Tape out / Keys to
+- [x] Железо: Tape in / Tape out / Keys to работают (2026-11-15)
 
 ## Открытые вопросы
 
