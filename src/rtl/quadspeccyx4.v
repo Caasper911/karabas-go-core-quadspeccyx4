@@ -2,31 +2,34 @@
 `default_nettype none
 
 /*
- speccywall.v
+ quadspeccyx4.v
 
- SpeccyWall (docs/PLAN.md): sixteen Pentagon 128 on two engines (zx_oct, eight machines each: machine m = engine
- m[3], machine m[2:0] in it) in the SRAM (sram_arb: a queue per engine, sram_ctrl), on the screen the wall
- (1280 x 800: 4 x 4 cells, the paper of each machine at 1:1, wall_fetch reads the rows through the video port of
- sram_ctrl) or the selected machine full screen (zx_scr: its screen through the video port; 1280 x 800 at scale 3 or
- 720 x 576), vga_out on the pixel clock; the keyboard, beeper and the one AY of the selected machine. Everything of the
- core but the board: karabas_go_top.v puts video, sound and the FT812 / MCU lines on its pins.
+ QuadSpeccyX4 (docs/PLAN.md): sixteen Pentagon 128 on two engines (zx_oct, eight machines each: machine m = engine
+ m[3], machine m[2:0] in it) in the SRAM (sram_arb: a queue per engine, sram_ctrl). The video: each machine draws its
+ picture on its own raster (zx_vid.v in each engine, the rasters staggered, the screens read through vid_fetch and the
+ video port of sram_ctrl); the cells of the wall go into the frame buffer in the SDRAM (fb_sdram.v), vga_out shows
+ the wall (1280 x 800: 4 x 4 cells of 320 x 200) from there, or the selected machine full screen from its line
+ buffers (1280 x 800 at scale 3 or 720 x 576); the keyboard, beeper and the one AY of the selected machine.
+ Everything of the core but the board: karabas_go_top.v puts video, sound, the SDRAM and the FT812 / MCU lines on its
+ pins.
 
  Clocks:
-   PLL 1 on CLK_50MHZ (VCO 925 MHz, as QuadSpeccy): clk_sys 84.09 MHz (/11, the write strobe of sram_ctrl), clk_bus
+   PLL 1 on CLK_50MHZ (VCO 925 MHz, as QuadSpeccy): clk_sys 84.09 MHz (/11, the write strobe of sram_ctrl, the SDRAM), clk_bus
    28.03 MHz (/33: the machines, the MCU link, the line buffer writes), clk_8 7.97 MHz (/116, the FT812 of the Mini).
    A DCM on clk_bus: pclk = clk_bus * 21 / 8 = 73.6 MHz (CLKFX; CLK0 feedback, so pclk is aligned with clk_bus every 8
    of its clocks): the VGA raster, the OSD overlay, the DAC. Not a PLL: the XC6SLX25 has two, the second one is the
    HDMI of the Mini boards (x 10 on pclk, tmds_oserdes.v).
 
  Hotkeys (zx_kbd): Win + 1..8 the machine with the keyboard and the sound (Shift + Win + 1..8: 9..16), Win + arrows
- the machine next to it (4 columns, 4 rows), Win + ` the wall / the selected machine full screen (the wall after the start; 720 x 576 is always
+ the machine next to it (4 columns, 4 rows), Win + F11 NMI of all machines, Win + ` the wall / the selected machine full screen (the wall after the start; 720 x 576 is always
  full screen).
  OSD (core.json "osd", the "index" of the items): 0 joystick L, 1 joystick R, 2 video (0 720 x 576, 1 1280 x 800: the default),
  3 reset of the selected machine (F12), 4 reset of all (Menu+F12), 5 the colour of the frame of the selected cell
  in the wall (0..7 ZX colours, default 4 green), 6 NMI of the selected machine (F11), 7 AY mix (0 ABC, 1 ACB), as QuadSpeccy: 8 Tape in (0 Board: every
  machine hears TAPE_IN; 1 Core: every machine but the Tape out one hears the MIC of that one, it TAPE_IN), 9 Tape out
  (machine n: its MIC on TAPE_OUT; make_core allows 16 options, so no "selected"), 10 Keys to (0 the selected machine, 1 all, in the
- wall only), 11 Frame fade (0 off, 1 the frame hides 2 s after a choice of a machine, as QuadSpeccy). The diagnostics squares: parameter DIAG.
+ wall only), 11 Frame fade (0 off, 1 the frame hides 2 s after a choice of a machine, as QuadSpeccy), 12 DivMMC.
+ The diagnostics squares: parameter DIAG.
 
  ROM loader: the 32 KB of the shared ROM (128 editor at 0, 48 BASIC at 16384) written straight into the block RAM of
  zx_oct, the machines held in reset meanwhile.
@@ -34,9 +37,9 @@
  MCU: link v2 (kg_mcu2 of modules), MCU_INT on the IO1 line of the board.
 */
 
-module speccywall #(
+module quadspeccyx4 #(
 	parameter MEMTEST_AW = 21,          // the words of the SRAM self test (sram_test.v)
-	parameter DIAG = 0                  // 1: the diagnostics squares of the bring-up (zx_scr, below) on the screen
+	parameter DIAG = 0                  // 1: the diagnostics squares of the bring-up (below) on the full screen
 ) (
 	input wire CLK_50MHZ,
 
@@ -49,6 +52,15 @@ module speccywall #(
 	inout wire [15:0] MD,
 	output wire [1:0] MRD_N,
 	output wire [1:0] MWR_N,
+
+	output wire SDR_CLK,
+	output wire [1:0] SDR_BA,
+	output wire [12:0] SDR_A,
+	output wire [1:0] SDR_DQM,
+	output wire SDR_RAS_N,
+	output wire SDR_CAS_N,
+	output wire SDR_WE_N,
+	inout wire [15:0] SDR_DQ,
 
 	input wire mcu_cs_n,
 	input wire mcu_sck,
@@ -230,7 +242,7 @@ wire sw_acb = softsw[56];
 wire [39:0] kbd_keys;
 wire [7:0] kbd_kempston;
 wire [3:0] kbd_sel;
-wire kbd_full_tgl, kbd_sel_hit;
+wire kbd_full_tgl, kbd_sel_hit, kbd_nmi_all;
 
 zx_kbd #(.ROWS(4)) kbd(
 	.clk(clk_bus),
@@ -250,6 +262,7 @@ zx_kbd #(.ROWS(4)) kbd(
 	.kempston(kbd_kempston),
 	.sel(kbd_sel),
 	.full_tgl(kbd_full_tgl),
+	.nmi_all(kbd_nmi_all),
 	.sel_hit(kbd_sel_hit)
 );
 
@@ -324,8 +337,7 @@ always @(posedge clk_bus)
 
 wire [15:0] m_q;
 wire [15:0] m_beeper, m_mic, m_late;
-wire [2:0] v_border;
-wire v_scr7;
+reg [2:0] v_border = 3'd0;          // the border of the selected machine (diagnostics)
 wire ay_we;
 wire [3:0] ay_wa, ay_ra;
 wire [7:0] ay_wd, ay_rd;
@@ -346,7 +358,19 @@ generate
 	end
 endgenerate
 
-// the two engines: machines 0..7 (BASE 0: the first MB of the SRAM) and 8..15 (BASE 1)
+// the two engines: machines 0..7 (BASE 0: the first MB of the SRAM) and 8..15 (BASE 1), each with its video (zx_vid)
+wire [1:0] e_int, f_req, r_v, fw_we, fl_done, e_pwe;
+wire [41:0] f_addr;
+wire [7:0] f_tag;
+wire [3:0] r_tag;
+wire [15:0] r_q, e_vlate;
+wire [21:0] fw_addr;
+wire [31:0] fw_data;
+wire [5:0] fl_m;
+wire [15:0] fl_lc;
+wire [19:0] e_pa;
+wire [15:0] e_pd;
+wire [17:0] e_pv, e_pe;
 wire [1:0] e_req, e_we, e_scr7, e_ayw;
 wire [43:0] e_addr;
 wire [15:0] e_din, e_aywd, e_ayrd;
@@ -357,7 +381,6 @@ wire [11:0] e_7ffd, e_ev;
 wire a_rv, a_re;                     // a byte of a read from sram_arb: its engine, machine
 wire [2:0] a_rm;
 wire [7:0] a_rd;
-wire [3:0] v_m;
 
 // the SD cards of the engines (sd_oct in zx_oct) on the one image (sd_host)
 wire [15:0] h_pend, h_wr, h_q;
@@ -378,9 +401,21 @@ sd_host sdh (
 genvar ge;
 generate
 	for (ge = 0; ge < 2; ge = ge + 1) begin : g_eng
+		// the video of the engine: the rasters of its machines, their INT, pictures, screen reads
+		zx_vid #(.BASE(ge)) vid (
+			.clk(clk_bus), .slot(slot), .hc(hc), .vc(vc), .frame(frame), .int_th(e_int[ge]),
+			.gm(), .g_border(e_vb[ge*3 +: 3]), .g_scr7(e_scr7[ge]),
+			.f_req(f_req[ge]), .f_addr(f_addr[ge*21 +: 21]), .f_tag(f_tag[ge*4 +: 4]), .r_v(r_v[ge]), .r_tag(r_tag),
+			.r_q(r_q),
+			.w_we(fw_we[ge]), .w_addr(fw_addr[ge*11 +: 11]), .w_data(fw_data[ge*16 +: 16]), .l_done(fl_done[ge]),
+			.l_m(fl_m[ge*3 +: 3]), .l_lc(fl_lc[ge*8 +: 8]),
+			.fs_en(sel[3] == ge), .fs_m(sm), .p_we(e_pwe[ge]), .p_addr(e_pa[ge*10 +: 10]), .p_data(e_pd[ge*8 +: 8]),
+			.p_v(e_pv[ge*9 +: 9]), .p_e(e_pe[ge*9 +: 9]), .late(e_vlate[ge*8 +: 8])
+		);
+
 		zx_oct #(.BASE(ge)) eng (
-			.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(m_reset[ge*8 +: 8]),
-			.nmi((sw_nmi && sel[3] == ge) ? (8'd1 << sm) : 8'd0),
+			.clk(clk_bus), .slot(slot), .int_n(e_int[ge]), .reset(m_reset[ge*8 +: 8]),
+			.nmi(((sw_nmi && sel[3] == ge) ? (8'd1 << sm) : 8'd0) | {8{kbd_nmi_all}}),
 			.sel_en(sel[3] == ge), .sel(sm), .keys(kbd_keys), .keys_all(sw_keys_all & ~show_full),
 			.tape_in(m_tape_in[ge*8 +: 8]), .kempston(kbd_kempston),
 			.m_req(e_req[ge]), .m_we(e_we[ge]), .m_addr(e_addr[ge*22 +: 22]), .m_din(e_din[ge*8 +: 8]),
@@ -390,7 +425,7 @@ generate
 			.h_lba(h_lba[ge*32 +: 32]), .h_done(h_done[ge]), .h_we(h_we[ge]), .h_a(h_a), .h_d(h_d),
 			.h_q(h_q[ge*8 +: 8]),
 			.beeper(m_beeper[ge*8 +: 8]), .mic(m_mic[ge*8 +: 8]),
-			.v_m(v_m[2:0]), .v_border(e_vb[ge*3 +: 3]), .v_scr7(e_scr7[ge]),
+			.v_border(e_vb[ge*3 +: 3]), .v_scr7(e_scr7[ge]),
 			.ay_we(e_ayw[ge]), .ay_wa(e_aywa[ge*4 +: 4]), .ay_wd(e_aywd[ge*8 +: 8]), .ay_ra(ay_ra),
 			.ay_rd(e_ayrd[ge*8 +: 8]), .late(m_late[ge*8 +: 8]),
 			.dbg_pc(e_pc[ge*16 +: 16]), .dbg_7ffd(e_7ffd[ge*6 +: 6]), .dbg_ev(e_ev[ge*6 +: 6])
@@ -398,9 +433,7 @@ generate
 	end
 endgenerate
 
-// the context read port of the engine of v_m, the AY and the debug of the engine of the selected machine
-assign v_border = v_m[3] ? e_vb[5:3] : e_vb[2:0];
-assign v_scr7 = v_m[3] ? e_scr7[1] : e_scr7[0];
+// the AY and the debug of the engine of the selected machine
 assign ay_we = sel[3] ? e_ayw[1] : e_ayw[0];
 assign ay_wa = sel[3] ? e_aywa[7:4] : e_aywa[3:0];
 assign ay_wd = sel[3] ? e_aywd[15:8] : e_aywd[7:0];
@@ -419,13 +452,14 @@ sram_arb arb(
 	.rv(a_rv), .re(a_re), .rm(a_rm), .rd(a_rd)
 );
 
-wire v_req, v_ack, s_req, w_req;
-wire [20:0] v_addr, s_addr, w_addr;
-wire [3:0] w_m;
-// the video port and the context read port of the engines: the full screen reader or the wall reader
-assign v_req = show_full ? s_req : w_req;
-assign v_addr = show_full ? s_addr : w_addr;
-assign v_m = show_full ? sel : w_m;
+// the screen reads of the engines on the video port of the SRAM
+wire v_req, v_ack, vf_over;
+wire [20:0] v_addr;
+vid_fetch vfetch(
+	.clk(clk_bus), .f_req(f_req), .f_addr(f_addr), .f_tag(f_tag),
+	.v_req(v_req), .v_addr(v_addr), .v_ack(v_ack), .q(m_q),
+	.r_v(r_v), .r_tag(r_tag), .r_q(r_q), .over(vf_over)
+);
 
 // the self test of the SRAM (bring-up): after the start of the core only (at Reset All it held the machines and the
 // video port 0.2 s; the user wants Reset All to reset the Z80s only), the machines in reset meanwhile
@@ -456,11 +490,13 @@ sram_ctrl sram(
 );
 
 // ---------------------------------------------------------------------------------------------
-// diagnostics of the bring-up (zx_scr: four rows of 16 squares in the top border, bit 15 on the left, green 1)
+// diagnostics of the bring-up (the full screen: four rows of 16 squares in the top border, bit 15 on the left, green 1)
 //   row 0: 15 PLL 2 locked, 14 the loader was active, 13 a ROM byte was written, 12 a non-zero ROM byte, 11 the loader
 //          does not hold the machines now, 10 MCU not busy now, 9 machine sel not in reset now, 8 a CPU write to the
 //          SRAM was made, 7 a CPU read of the SRAM gave a non-zero word, 6 a video read gave a non-zero word, 5 the
 //          border of sel is not 0, 4 no late read (sticky), 3 the frame blinks (frame[4]), 2..0 sel
+//   row 1 bits 12..9: 12 the SDRAM is ready, 11 no line queue overflow, 10 no screen read queue overflow, 9 no screen
+//          word late (zx_vid, sticky)
 //   row 1: the SRAM self test: 15 done, 14 no error, 13 32768 ROM bytes written, 4..0 the first wrong word, bits 20..16
 //   row 2: the self test: the data bits that were wrong
 //   row 3: the self test: the first wrong word, bits 15..0
@@ -506,55 +542,49 @@ always @(posedge clk_bus)
 
 wire [95:0] diag = {
 	dbg_7ffd, v_border, dg_rdnz, dbg_ev, dg_pc, mt_first[15:0], mt_bad,
-	mt_done, mt_ok, dg_romcnt == 16'h8000, 8'd0, mt_first[20:16],
+	mt_done, mt_ok, dg_romcnt == 16'h8000, fb_ready, ~fb_over, ~vf_over, e_vlate == 16'd0, 4'd0, mt_first[20:16],
 	locked_p, dg_ld, dg_rom, dg_romnz, ~ld_hold, ~mcu_busy, ~m_reset[sel], dg_wr,
 	dg_rdnz, dg_vnz, v_border != 3'd0, ~dg_late, frame[4], sm
 };
 
 // ---------------------------------------------------------------------------------------------
-// video: the selected machine full screen
+// video: the selected machine full screen (its pixels from zx_vid into the line buffers of vga_out), the wall from the
+// frame buffer
 
-// the raster of the selected machine: machine m of an engine runs m clocks after machine 0 (its CPU in slot m, its INT taken in
-// slot 0 as for all), so its picture is exact on the raster of zx_timing delayed by m clocks
-reg [7:1] rd_ce7 = 7'd0, rd_fl = 7'd0;
-reg [8:0] rd_hc [1:7];
-reg [8:0] rd_vc [1:7];
-integer ri;
-initial for (ri = 1; ri < 8; ri = ri + 1) begin rd_hc[ri] = 9'd0; rd_vc[ri] = 9'd0; end
-always @(posedge clk_bus) begin
-	rd_ce7 <= {rd_ce7[6:1], ce7};
-	rd_fl <= {rd_fl[6:1], frame[4]};
-	rd_hc[1] <= hc;
-	rd_vc[1] <= vc;
-	for (ri = 2; ri < 8; ri = ri + 1) begin
-		rd_hc[ri] <= rd_hc[ri - 1];
-		rd_vc[ri] <= rd_vc[ri - 1];
-	end
-end
-wire s_ce7 = (sm == 3'd0) ? ce7 : rd_ce7[sm];
-wire [8:0] s_hc = (sm == 3'd0) ? hc : rd_hc[sm];
-wire [8:0] s_vc = (sm == 3'd0) ? vc : rd_vc[sm];
-wire s_fl = (sm == 3'd0) ? frame[4] : rd_fl[sm];
+always @(posedge clk_bus)
+	if (slot - 3'd4 == sm)
+		v_border <= sel[3] ? e_vb[5:3] : e_vb[2:0];
 
-wire [3:0] pix;
+wire p_we = sel[3] ? e_pwe[1] : e_pwe[0];
+wire [9:0] p_addr = sel[3] ? e_pa[19:10] : e_pa[9:0];
+wire [7:0] p_data = sel[3] ? e_pd[15:8] : e_pd[7:0];
+wire [8:0] p_v = sel[3] ? e_pv[17:9] : e_pv[8:0];
+wire [8:0] p_e = sel[3] ? e_pe[17:9] : e_pe[8:0];
 
-zx_scr scr(
-	.clk(clk_bus), .ce7(s_ce7), .hc(s_hc), .vc(s_vc), .flash(s_fl),
-	.m(sel), .scr7(v_scr7), .border(v_border), .diag_en(DIAG != 0), .diag(diag),
-	.v_req(s_req), .v_addr(s_addr), .v_ack(v_ack & show_full), .q(m_q),
-	.pix(pix)
-);
+// the diagnostics squares (DIAG): six rows of 16 squares, four in the top border (lines 284, 292, 300, 308) and two in
+// the bottom one (196, 204), 6 lines each, squares 12 x 6 pixels every 16 from hc 0; row r shows diag[r*16 +: 16],
+// bit 15 on the left: 1 bright green, 0 bright red
+wire dg_top = p_v >= 9'd284 && p_v < 9'd314;
+wire dg_bot = p_v >= 9'd196 && p_v < 9'd210;
+wire [8:0] dv = p_v - (dg_top ? 9'd284 : 9'd196);
+wire dg_on = (DIAG != 0) && (dg_top || dg_bot) && dv[2:0] < 3'd6 && p_e < 9'd256 && p_e[3:0] < 4'd12;
+wire [2:0] dg_row = dg_top ? {1'b0, dv[4:3]} : {2'b10, dv[3]};
+wire [3:0] dg_px = diag[{dg_row, ~p_e[7:4]}] ? 4'b1100 : 4'b1010;
+wire [7:0] lb_wd = dg_on ? {dg_px, dg_px} : p_data;
 
-wire wb_we;
-wire [6:0] wb_addr;
-wire [31:0] wb_data;
-wire [23:0] w_brd;
-
-wall_fetch #(.ROWS(4)) wall(
-	.clk(clk_bus), .en(~show_full), .ce7(ce7), .hc(hc), .vc(vc),
-	.v_m(w_m), .v_border(v_border), .v_scr7(v_scr7),
-	.v_req(w_req), .v_addr(w_addr), .v_ack(v_ack & ~show_full), .q(m_q),
-	.wb_we(wb_we), .wb_addr(wb_addr), .wb_data(wb_data), .brd(w_brd)
+// the frame buffer of the wall
+wire rq_t, rq_half, fb_ready, fb_over;
+wire [1:0] rq_cr;
+wire [7:0] rq_lc;
+wire [9:0] rb_addr;
+wire [15:0] rb_q;
+fb_sdram fb(
+	.clk(clk_sys), .clk_bus(clk_bus), .pclk(pclk),
+	.w_we(fw_we), .w_addr(fw_addr), .w_data(fw_data), .l_done(fl_done), .l_m(fl_m), .l_lc(fl_lc),
+	.rq_t(rq_t), .rq_cr(rq_cr), .rq_lc(rq_lc), .rq_half(rq_half), .rb_addr(rb_addr), .rb_q(rb_q),
+	.ready(fb_ready), .over(fb_over),
+	.SDR_CLK(SDR_CLK), .SDR_BA(SDR_BA), .SDR_A(SDR_A), .SDR_DQM(SDR_DQM), .SDR_RAS_N(SDR_RAS_N),
+	.SDR_CAS_N(SDR_CAS_N), .SDR_WE_N(SDR_WE_N), .SDR_DQ(SDR_DQ)
 );
 
 // the frame fade (QuadSpeccy): the frame of the selected cell is shown 98 frames (2 s) after every choice of a machine
@@ -571,11 +601,11 @@ wire [7:0] vo_r, vo_g, vo_b;
 wire vo_hs, vo_vs, vo_de, hs_neg, vs_neg;
 
 vga_out #(.ROWS(4)) vga(
-	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .w_ce7(s_ce7), .w_hc(s_hc), .w_vc(s_vc), .pix(pix),
+	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .lb_we(p_we), .lb_wa(p_addr), .lb_wd(lb_wd),
 	.mode_i(sw_video),
-	.wall_i(~show_full), .sel_i(sel), .flash_i(frame[4]), .frame_col(sw_frame_col), .rim_on(rim_on),
-	.wb_we(wb_we), .wb_addr(wb_addr), .wb_data(wb_data), .brd_i(w_brd),
+	.wall_i(~show_full), .sel_i(sel), .frame_col(sw_frame_col), .rim_on(rim_on),
 	.pclk(pclk),
+	.rq_t(rq_t), .rq_cr(rq_cr), .rq_lc(rq_lc), .rq_half(rq_half), .rb_addr(rb_addr), .rb_q(rb_q),
 	.r(vo_r), .g(vo_g), .b(vo_b), .hs(vo_hs), .vs(vo_vs), .de(vo_de), .hs_neg(hs_neg), .vs_neg(vs_neg)
 );
 

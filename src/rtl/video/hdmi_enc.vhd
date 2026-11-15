@@ -16,8 +16,8 @@
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 --
--- SpeccyWall (src/rtl/video/hdmi_enc.vhd): a copy of zhdmi_tx.vhd of karabas-go-modules (entity hdmi_tx) without its
--- serializers (in the fabric at 5x the pixel clock: 368 MHz at the 73.6 MHz of SpeccyWall does not meet the timing);
+-- QuadSpeccyX4 (src/rtl/video/hdmi_enc.vhd): a copy of zhdmi_tx.vhd of karabas-go-modules (entity hdmi_tx) without its
+-- serializers (in the fabric at 5x the pixel clock: 368 MHz at the 73.6 MHz of QuadSpeccyX4 does not meet the timing);
 -- the 10-bit words go out (tmds_0..2, tmds_c) to the OSERDES2 serializers of tmds_oserdes.v. Same licence.
 
 library ieee;

@@ -88,28 +88,35 @@ wire [15:0] e_aywd, e_ayrd;
 wire [31:0] e_pc;
 wire [11:0] e_7ffd, e_ev;
 
+// INT of the CPU of each slot: the value at slot 0 for all (zx_vid staggers it in the core)
+reg int_t = 1'b1;
+always @(posedge clk_bus)
+	if (slot == 3'd0)
+		int_t <= int_n;
+wire s_int_n = (slot == 3'd0) ? int_n : int_t;
+
 zx_oct rtl (
-	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset), .nmi(8'd0),
+	.clk(clk_bus), .slot(slot), .int_n(s_int_n), .reset(reset), .nmi(8'd0),
 	.sel_en(1'b1), .sel(sel), .keys(40'd0), .keys_all(1'b0), .tape_in(8'd0), .kempston(8'd0),
 	.m_req(e_req[0]), .m_we(e_we[0]), .m_addr(e_addr[21:0]), .m_din(e_din[7:0]),
 	.m_m(e_m[2:0]), .m_rv(e_rv[0]), .m_rm(e_rm[2:0]), .m_rd(e_rd[7:0]),
 	.divmmc_en(divmmc_en), .dv_clear(1'b0),
 	.sd_en(1'b0), .sd_csize(22'd0), .h_pend(), .h_wr(), .h_m(3'd0), .h_lba(), .h_done(1'b0), .h_we(1'b0), .h_a(9'd0),
 	.h_d(8'd0), .h_q(),
-	.beeper(e_beeper[7:0]), .mic(e_mic[7:0]), .v_m(sel), .v_border(e_vb[2:0]), .v_scr7(e_scr7[0]),
+	.beeper(e_beeper[7:0]), .mic(e_mic[7:0]), .v_border(e_vb[2:0]), .v_scr7(e_scr7[0]),
 	.ay_we(e_ayw[0]), .ay_wa(e_aywa[3:0]), .ay_wd(e_aywd[7:0]), .ay_ra(slot ^ 4'd5), .ay_rd(e_ayrd[7:0]),
 	.late(e_late[7:0]), .dbg_pc(e_pc[15:0]), .dbg_7ffd(e_7ffd[5:0]), .dbg_ev(e_ev[5:0])
 );
 
 zx_oct_ps syn (
-	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset), .nmi(8'd0),
+	.clk(clk_bus), .slot(slot), .int_n(s_int_n), .reset(reset), .nmi(8'd0),
 	.sel_en(1'b1), .sel(sel), .keys(40'd0), .keys_all(1'b0), .tape_in(8'd0), .kempston(8'd0),
 	.m_req(e_req[1]), .m_we(e_we[1]), .m_addr(e_addr[43:22]), .m_din(e_din[15:8]),
 	.m_m(e_m[5:3]), .m_rv(e_rv[1]), .m_rm(e_rm[5:3]), .m_rd(e_rd[15:8]),
 	.divmmc_en(divmmc_en), .dv_clear(1'b0),
 	.sd_en(1'b0), .sd_csize(22'd0), .h_pend(), .h_wr(), .h_m(3'd0), .h_lba(), .h_done(1'b0), .h_we(1'b0), .h_a(9'd0),
 	.h_d(8'd0), .h_q(),
-	.beeper(e_beeper[15:8]), .mic(e_mic[15:8]), .v_m(sel), .v_border(e_vb[5:3]), .v_scr7(e_scr7[1]),
+	.beeper(e_beeper[15:8]), .mic(e_mic[15:8]), .v_border(e_vb[5:3]), .v_scr7(e_scr7[1]),
 	.ay_we(e_ayw[1]), .ay_wa(e_aywa[7:4]), .ay_wd(e_aywd[15:8]), .ay_ra(slot ^ 4'd5), .ay_rd(e_ayrd[15:8]),
 	.late(e_late[15:8]), .dbg_pc(e_pc[31:16]), .dbg_7ffd(e_7ffd[11:6]), .dbg_ev(e_ev[11:6])
 );

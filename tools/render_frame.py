@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """render_frame.py: screen.hex of src/sim/tb_sna.v (the whole Pentagon raster, 448 x 320 values {bright, G, R, B},
 line vc 0..319, pixel hc 0..447: paper at hc 0..255 of lines 0..191) into a PNG, scaled 2x, rotated so that the
-picture reads as on a screen (left border hc 384..447 first, top border lines 256..319 first)."""
+picture reads as on a screen (left border hc 384..447 of the line before first, top border lines 256..319 first)."""
 import sys
 import zlib
 import struct
@@ -18,7 +18,9 @@ def main():
         line = bytearray()
         for x in range(W):
             hc = (x + 384) % W
-            c = cols(v[vc * W + hc])
+            # the left border (hc 384..447) is drawn before the paper of the next line: from the line before
+            lv = (vc - 1) % H if hc >= 384 else vc
+            c = cols(v[lv * W + hc])
             line += bytes(c) * 2
         rows.append(bytes(line))
         rows.append(bytes(line))

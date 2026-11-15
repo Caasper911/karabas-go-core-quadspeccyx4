@@ -4,7 +4,7 @@
 /*
  karabas_go_top.v
 
- SpeccyWall (rtl/speccywall.v) on Karabas Go: the VGA DAC clocked by V_CLK (pclk through an ODDR2, its rising edge in
+ QuadSpeccyX4 (rtl/quadspeccyx4.v) on Karabas Go: the VGA DAC clocked by V_CLK (pclk through an ODDR2, its rising edge in
  the middle of a pixel), the PCM5102, the beeper and tape outputs, the FT812 kept off the VGA bus but for the MCU.
  SDRAM, SD card, floppy drive, ESP, MIDI and the CF card are not used: idle.
 */
@@ -116,14 +116,7 @@ assign SD_DI = 1'b1;
 assign SD_CS_N = 1'b1;
 assign SD_CLK = 1'b0;
 
-assign SDR_BA = 2'b00;
-assign SDR_A = 13'd0;
-assign SDR_CLK = 1'b0;
-assign SDR_DQM = 2'b11;
-assign SDR_WE_N = 1'b1;
-assign SDR_CAS_N = 1'b1;
-assign SDR_RAS_N = 1'b1;
-assign SDR_DQ = 16'bZZZZZZZZZZZZZZZZ;
+// the SDRAM: the frame buffer of the wall (fb_sdram.v in the core)
 
 assign FDC_DRIVE = 2'b00;
 assign FDC_MOTOR = 1'b0;
@@ -165,13 +158,15 @@ wire [15:0] audio_l, audio_r;
 assign MCU_SPI_IO[0] = mcu_int;
 assign MCU_SPI_IO[1] = 1'bZ;
 
-speccywall core(
+quadspeccyx4 core(
 	.CLK_50MHZ(CLK_50MHZ),
 	.clk_bus(clk_bus),
 	.clk_8(),
 	.pclk(pclk),
 	.areset(areset),
 	.MA(MA), .MD(MD), .MRD_N(MRD_N), .MWR_N(MWR_N),
+	.SDR_CLK(SDR_CLK), .SDR_BA(SDR_BA), .SDR_A(SDR_A), .SDR_DQM(SDR_DQM), .SDR_RAS_N(SDR_RAS_N),
+	.SDR_CAS_N(SDR_CAS_N), .SDR_WE_N(SDR_WE_N), .SDR_DQ(SDR_DQ),
 	.mcu_cs_n(MCU_CS_N), .mcu_sck(MCU_SCK), .mcu_mosi(MCU_MOSI), .mcu_miso(MCU_MISO),
 	.mcu_ft_ss(MCU_SPI_FT_CS_N), .mcu_sd2_ss(MCU_SPI_SD2_CS_N),
 	.mcu_int(mcu_int),

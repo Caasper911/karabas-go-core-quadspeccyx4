@@ -12,6 +12,7 @@
    Win + arrows the machine next to the selected one in the grid of 4 columns (sel[1:0]) and ROWS rows (sel[3:2]),
                 no wrap
    Win + `/~    full screen of the selected machine on / off (full_tgl, one clock)
+   Win + F11    NMI of all machines while held (nmi_all)
 
  sel_hit: one clock on every choice of a machine (Win + 1..8, Win + arrow, also at the edge of the grid where sel
  does not move): the frame fade shows the frame again (QuadSpeccy).
@@ -50,6 +51,7 @@ module zx_kbd #(
 	output reg [7:0] kempston = 8'd0,
 	output reg [3:0] sel = 4'd0,
 	output reg full_tgl = 1'b0,
+	output reg nmi_all = 1'b0,
 	output reg sel_hit = 1'b0
 );
 
@@ -217,12 +219,14 @@ reg [39:0] acc = 40'd0;
 reg acc_nocs = 1'b0;
 reg [3:0] hk_num = 4'd0, hk_num_prev = 4'd0;
 reg hk_tilde = 1'b0, hk_tilde_prev = 1'b0;
+reg hk_f11 = 1'b0;
 reg [2:0] hk_arr = 3'd0, hk_arr_prev = 3'd0;   // arrow: 0 none, 4 right (4F), 5 left (50), 6 down (51), 7 up (52)
 
 wire [39:0] acc_n = acc | dec[39:0];
 wire nocs_n = acc_nocs | dec[40];
 wire [3:0] hk_num_n = (code >= 8'h1E && code <= 8'h25) ? code[3:0] - 4'hD : hk_num;   // 1E..25 -> 1..8
 wire hk_tilde_n = hk_tilde | (code == 8'h35);
+wire hk_f11_n = hk_f11 | (code == 8'h44);
 wire [2:0] hk_arr_n = (code >= 8'h4F && code <= 8'h52) ? {1'b1, code[1:0] - 2'd3} : hk_arr;
 
 wire [39:0] mods = (ctrl | alt ? k(K_SS) : 40'd0) | (alt | (shift & ~nocs_n) ? k(K_CS) : 40'd0);
@@ -237,6 +241,8 @@ always @(posedge clk) begin
 		acc_nocs <= 1'b0;
 		hk_num <= 4'd0;
 		hk_tilde <= 1'b0;
+		hk_f11 <= 1'b0;
+		nmi_all <= 1'b0;
 		hk_arr <= 3'd0;
 		keys <= 40'd0;
 		sel <= 4'd0;
@@ -246,8 +252,10 @@ always @(posedge clk) begin
 		acc_nocs <= 1'b0;
 		hk_num <= 4'd0;
 		hk_tilde <= 1'b0;
+		hk_f11 <= 1'b0;
 		hk_arr <= 3'd0;
 		keys <= (win ? 40'd0 : (acc_n | mods)) | joys;
+		nmi_all <= win && hk_f11_n;
 		kempston <= kemp(joy_type_l, joy_l) | kemp(joy_type_r, joy_r);
 		// hotkeys on the change of the key with Win held
 		hk_num_prev <= hk_num_n;
@@ -274,6 +282,7 @@ always @(posedge clk) begin
 		acc_nocs <= nocs_n;
 		hk_num <= hk_num_n;
 		hk_tilde <= hk_tilde_n;
+		hk_f11 <= hk_f11_n;
 		hk_arr <= hk_arr_n;
 	end
 end

@@ -2,9 +2,9 @@
 `default_nettype wire
 
 /*
- SpeccyWall (src/rtl/video/osd_overlay.v): a copy of kg_l2_osd_overlay.v of karabas-go-modules with a horizontal scale
- of its own (marked "speccywall:"): s_force sets the scale (0: from the size of the area, as before), sx_force the
- horizontal one (0: the same). The 720 x 576 raster of SpeccyWall runs on a pixel clock 2.625 times that of its
+ QuadSpeccyX4 (src/rtl/video/osd_overlay.v): a copy of kg_l2_osd_overlay.v of karabas-go-modules with a horizontal scale
+ of its own (marked "quadspeccyx4:"): s_force sets the scale (0: from the size of the area, as before), sx_force the
+ horizontal one (0: the same). The 720 x 576 raster of QuadSpeccyX4 runs on a pixel clock 2.625 times that of its
  pixels: one scale stretched the OSD vertically; there it is 2 down and 5 across.
 
  kg_l2_osd_overlay.v
@@ -61,7 +61,7 @@ module osd_overlay #(
 	input wire [4:0] osd_ph,
 	input wire [1:0] osd_place,
 	input wire osd_zoom,
-	// speccywall: the scale (0: from the area), the horizontal scale (0: the same); static
+	// quadspeccyx4: the scale (0: from the area), the horizontal scale (0: the same); static
 	input wire [3:0] s_force,
 	input wire [3:0] sx_force,
 	/* verilator lint_off UNUSEDSIGNAL */ // the icons past ICONS_N
@@ -145,7 +145,7 @@ end
 // the geometry of the frame, set at its start
 reg vis = 1'b0;
 reg [3:0] s = 4'd2;                       // screen pixels per OSD pixel
-reg [3:0] sx = 4'd2;                      // speccywall: screen pixels (clocks) per OSD pixel across
+reg [3:0] sx = 4'd2;                      // quadspeccyx4: screen pixels (clocks) per OSD pixel across
 reg [7:0] wx0 = 8'd0;                     // its first column / line in the bitmap
 reg [6:0] wy0 = 7'd0;
 reg signed [13:0] x0 = 14'sd0, y0 = 14'sd0; // its first screen pixel / line
@@ -153,7 +153,7 @@ reg [12:0] W = 13'd0, H = 13'd0;          // its size on the screen
 reg [23:0] fg = 24'hFFFFFF, bg = 24'd0;
 reg [1:0] alpha = 2'd2;
 
-// speccywall: the geometry in three register stages, every clock (its inputs are static during a frame: the settings,
+// quadspeccyx4: the geometry in three register stages, every clock (its inputs are static during a frame: the settings,
 // aw / ah change at a line end / the frame start, the frame start takes the stages as they were; as one combinational
 // chain from the switches of clk_bus it was the longest path of pclk, -0.7 ns on the Mini)
 reg [3:0] s_auto = 4'd1, sx_auto = 4'd1;
@@ -211,7 +211,7 @@ reg signed [13:0] Wb = 14'sd0, W3 = 14'sd0, Hb = 14'sd0, H3 = 14'sd0;
 always @(posedge clk) begin
 	frame_start_d <= frame_start;
 	if (frame_start_d) begin
-		Wb <= $signed({ 1'b0, W }) + $signed({ 9'd0, sx, 1'b0 });                                // speccywall: sx
+		Wb <= $signed({ 1'b0, W }) + $signed({ 9'd0, sx, 1'b0 });                                // quadspeccyx4: sx
 		W3 <= $signed({ 1'b0, W }) + $signed({ 9'd0, sx, 1'b0 }) + $signed({ 8'd0, sx, 2'b00 });
 		Hb <= $signed({ 1'b0, H }) + $signed({ 9'd0, s, 1'b0 });
 		H3 <= $signed({ 1'b0, H }) + $signed({ 9'd0, s, 1'b0 }) + $signed({ 8'd0, s, 2'b00 });
@@ -225,7 +225,7 @@ wire signed [13:0] ys = $signed({ 2'b00, y });
 wire signed [13:0] Ws = $signed({ 1'b0, W });
 wire signed [13:0] Hs = $signed({ 1'b0, H });
 wire signed [13:0] b = $signed({ 9'd0, s, 1'b0 });   // the border: 2 OSD pixels (the shadow: 4 more)
-wire signed [13:0] bx = $signed({ 9'd0, sx, 1'b0 }); // speccywall: across
+wire signed [13:0] bx = $signed({ 9'd0, sx, 1'b0 }); // quadspeccyx4: across
 
 // the pixel from the corner of the window: one subtractor per axis, the edges are constants of
 // the frame (the border from -b to W + b, the shadow from b to W + 3b)

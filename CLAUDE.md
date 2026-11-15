@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-SpeccyWall for the Karabas Go / Mini / Mini G boards (Xilinx Spartan-6 XC6SLX25, ISE 14.7, XST): 16 Pentagon 128 on
+QuadSpeccyX4 for the Karabas Go / Mini / Mini G boards (Xilinx Spartan-6 XC6SLX25, ISE 14.7, XST): 16 Pentagon 128 on
 one FPGA, shown on one screen (1280 x 800, frame locked to the Pentagon frame, 48.88 Hz: total 1568 x 960, pixel
 clock 21/8 clk_bus = 73.6 MHz, 3 VGA lines per Spectrum line) as a 4 x 4 grid (paper 256 x 192 1:1, a 1 pixel
 border) or the selected one full screen at scale 3 (decided 2026-11-14, docs/ARCHITECTURE.md "Видео"). Follows karabas-go-quadspeccy (`../karabas-go-quadspeccy`, 4 machines), but a machine is not a module
@@ -27,12 +27,12 @@ milestone 5 (Mini / Mini G) done: works on all three boards (2026-11-15).
   of a request (`e_m` from `m_m` of zx_oct), not address bits. `rtl/sd/sd_oct.v`: the cards of an engine (kg_sd_emu's
   FSM in contexts, sector buffer 4 KB per engine, WAIT on an #EB read while the card waits: `c_ebw`);
   `rtl/sd/sd_host.v`: 16 cards on kg_mcu2 img slot 0 (ENABLE_IMG 1), 32-sector cache. DivMMC RAM cleared after start
-  and Reset All (`dw_*` in speccywall.v).
+  and Reset All (`dw_*` in quadspeccyx4.v).
 - Milestone 5: `karabas_{mini,minig}_top.v` (QuadSpeccy's), HDMI `rtl/video/hdmi_out.v` = `hdmi_enc.vhd` (zhdmi_tx of
   the modules without its serializers, GPL) + `tmds_oserdes.v` (PLL x10 on pclk, BUFPLL, OSERDES2 master/slave per
   lane, XAPP495 style; the fabric serializer at 368 MHz failed). pclk now from a DCM (CLKFX 21/8 of clk_bus): the
   XC6SLX25 has two PLLs, the main one and the HDMI one. `src/sim/run_tmds.sh` checks the bit order of the serializer. Milestone 3: the first core for the Go
-(`src/speccywall.kg`: eight machines, the selected one full screen, 720 x 576 or 1280 x 800) works on the Go
+(`src/quadspeccyx4.kg`: eight machines, the selected one full screen, 720 x 576 or 1280 x 800) works on the Go
 (2026-11-14; the user tests on the board).
 
 - XST 14.7 mis-synthesized a context array written in both branches of `if (reset) ... else ...` (a RAM16X1D that
@@ -40,18 +40,26 @@ milestone 5 (Mini / Mini G) done: works on all three boards (2026-11-15).
   values `n_*` combinational), and run `src/sim/run_ps.sh` (the XST netlist of zx_oct against the RTL) after changing
   context logic: the RTL tests cannot see this.
 
-- `src/rtl/speccywall.v` (the core) and `karabas_go_top.v`; `rtl/video/zx_scr.v` (the screen of the selected machine
-  from the SRAM, pairs of characters through the video port), `rtl/video/vga_out.v` (pclk = 21/8 clk_bus from a second
-  PLL, 73.6 MHz, locked to the Pentagon frame, two rasters), `rtl/hid/zx_kbd.v` / `rtl/sound/ay_psg.v` from QuadSpeccy
+- Frame buffer of the wall (2026-11-15, the user wants exact multicolour in the cells, docs/ARCHITECTURE.md "Буфер
+  кадра стены"): `rtl/video/zx_vid.v` per engine: the raster of machine g is 13 g T after zx_timing (STAGGER: 16
+  rasters at once need 50 % of the SRAM in the paper, the CPUs take ~52 %), its INT too (zx_oct takes `int_n` of the
+  CPU of the slot now; zx_oct gives the border / #7FFD of machine slot - 4, no `v_m`); slot gm + 4 draws two pixels of
+  machine gm (screen pairs asked 4 T ahead through `rtl/video/vid_fetch.v` on the video port of sram_ctrl), the cell
+  words (320 x 200, the left border from the line before) and the full screen pixels of the selected machine.
+  `rtl/video/fb_sdram.v` (clk_sys): the SDRAM (timing of sdram_ctrl of QuadSpeccy, BL1, a command a clock: a cell line
+  = ACTIVE + 80 words), triple buffered frames per machine (fw / fc / fd), the rows of the wall into a row buffer for
+  vga_out. zx_scr.v and wall_fetch.v are gone.
+- `src/rtl/quadspeccyx4.v` (the core) and `karabas_go_top.v`; `rtl/video/vga_out.v` (pclk = 21/8 clk_bus from a second
+  PLL, 73.6 MHz, locked to the Pentagon frame, two rasters; the full screen from 4 line buffers written by zx_vid, the
+  wall from the row buffer of fb_sdram), `rtl/hid/zx_kbd.v` / `rtl/sound/ay_psg.v` from QuadSpeccy
   (zx_kbd: sel 4 bits, Win+1..8, arrows on 4 columns x ROWS).
 - Milestone 6 (16 machines) works on the Go (2026-11-14): two zx_oct (`g_eng`, BASE 0 / 1, machine m = engine m[3]),
   `rtl/mem/sram_arb.v` (a queue per engine, one SRAM access a clock, returns {engine, machine, byte}); zx_oct takes
   SRAM data with a variable latency (`m_rv`/`m_rm`/`m_rd` into context `c_ramd`; ROM fixed into `c_romd`;
   `c_fromrom` chooses). Shift+Win+1..8 = machines 9..16. 1885 slices (50 %), clk_bus 24.0 ns, pclk 13.19 of 13.59
   (the video outputs have their own register after the OSD overlay: the overlay blend into an IOB register failed).
-- Milestone 4 (the wall): `rtl/video/wall_fetch.v` reads before every VGA row the Spectrum line of the 4 machines of
-  the cell row (128 words, pipelined on the video port) into the row buffer of `vga_out` (RAMB8, clk_bus / pclk);
-  Win+` wall / full screen; 1280 x 800 is the default video now.
+- Milestone 4 (the wall): Win+` wall / full screen; 1280 x 800 is the default video (wall_fetch.v read the rows from
+  the screens at VGA time until the frame buffer).
 
 - `src/rtl/tv80`: tv80 (as QuadSpeccy, from karabas_go_v6z80p with its fixes, marked `karabas:`). `tv80_oct.v`: one
   tv80 for eight CPUs, ONE clock per CPU (slot k of 8 = cen of CPU k; a T-state is 8 clocks of clk_bus 28 MHz). The
@@ -78,16 +86,13 @@ milestone 5 (Mini / Mini G) done: works on all three boards (2026-11-15).
 
 ## Build
 
-- `cd src && make` builds go, mini, minig into `speccywall.kg`; `make go` as QuadSpeccy (see its CLAUDE.md: MSYS2 make from Git Bash, `make_core.py` of the sibling
+- `cd src && make` builds go, mini, minig into `quadspeccyx4.kg`; `make go` as QuadSpeccy (see its CLAUDE.md: MSYS2 make from Git Bash, `make_core.py` of the sibling
   `../karabas-go-tools`, `make go-report`). map sometimes stops in Global Placement without a message (as in
   QuadSpeccy): run make again. About 10 minutes. The `.bin` / `.kg`
   are the release, committed. Check the `.syr` Clock Information (pclk, clk_bus, clk_sys, MCU_SCK only).
-- Measured (DivMMC + SD, 2026-11-15): Go 2328 slices (61 %), Mini 2759 / Mini G 2752 (73 %), 14 RAMB16 + 9 RAMB8;
-  clk_bus 24.2-28.7 ns of 35.7, pclk 10.1-13.2 of 13.59 (the OSD geometry is pipelined: from the OSD switches of
-  clk_bus it failed on the Mini, the TIG clk_bus -> pclk did not cover it).
-
-## Tests
-
+- Measured (frame buffer + Win+F11, 2026-11-15): Go 2516 slices (66 %), Mini 2956 (78 %), Mini G 2919 (77 %), 19 RAMB16
+  + 8 RAMB8; clk_bus 28.0-33.5 ns of 35.7, pclk 13.1-13.2 of 13.59, clk_sys 10.4-11.0 of 11.9. Placement moves these by
+  a few ns from build to build.
 - `src/sim/run_tv80o.sh [clocks]` (ISim of ISE 14.7, Windows or Linux; `PYTHON=python` on Windows): eight
   `tv80_core` against `tv80_oct` clock for clock on random code with random WAIT / INT / NMI / pauses / resets; all
   outputs every clock, the state (ACC, F, PC, SP, I, register file) once per T-state. Prints `tb_tv80o: 0 errors`.
@@ -106,9 +111,12 @@ milestone 5 (Mini / Mini G) done: works on all three boards (2026-11-15).
   `tools/render_wall.py`); `SEED`, `FUSE_DEFS="-d WATCH=22'h<addr>"` traces the writes of one byte.
 - `src/test/run_timing.sh wall8` (out of date: `wall8_top.v` has the ports of milestone 4, before sram_arb): `zx_oct` + `sram_ctrl` on the SRAM pins of the Go (`wall8.ucf` with the SRAM
   constraints of TS-Conf): 1679 LUT, 563 slices, 16 RAMB16, clk_bus 21.3 ns.
-- `src/sim/run_video.sh [frames]`: zx_scr + sram_ctrl + the SRAM model + vga_out, every visible VGA pixel against the
-  memory, the CPU port of the SRAM as busy as eight machines make it; `MODE=0` 720 x 576, `STRIPES=1`, `SCR7=1`,
-  `BUSY=0`, `WALL=1` the wall (wall_fetch, 8 machines with their own page and border, `SEL`). About 30 s per frame.
+- `src/sim/run_video.sh [frames]`: the video path: two zx_vid + vid_fetch + sram_ctrl + the SRAM model (the CPU port
+  as busy as 16 machines make it, `BUSY=0` random), fb_sdram + `sdram_model.v` (QuadSpeccy's, checks the SDRAM
+  timing) + vga_out 1280 x 800; the border of each machine a function of its raster position and (`CFT=1`) its cell
+  frame: every pixel of the wall against the memory / the function, a cell from one frame of its machine (no
+  tearing); `WALL=0` the full screen of machine `FS`; late screen words, queue overflows, the longest wait of a
+  screen word (21 clocks). About 1.6 min per frame.
 - `src/sim/run_int.sh [frames]` (`SHORT=1`): the frame interrupt of the 16 machines: position (17988 T before the
   paper), 32 T, period, acknowledges per frame. `src/sim/run_sna.sh <file.sna> [frames]`: a 48K or 128K snapshot (the picture of each frame in work_s/screen.png)
   (`tools/sna2sim.py`: the RAM into machine 0, a 48 ROM with a loader of the registers in place of SA-BYTES) on the

@@ -1,7 +1,7 @@
-# Command line build of the SpeccyWall core (ISE 14.7), after karabas-go-core-tsconf/src/Makefile.
+# Command line build of the QuadSpeccyX4 core (ISE 14.7), after karabas-go-core-tsconf/src/Makefile.
 #
-#   make                 all the boards (speccywall.kg): Karabas Go, Mini, Mini G
-#   make go|mini|minig   one board: synthesis, implementation, bitstream, its part of speccywall.kg
+#   make                 all the boards (quadspeccyx4.kg): Karabas Go, Mini, Mini G
+#   make go|mini|minig   one board: synthesis, implementation, bitstream, its part of quadspeccyx4.kg
 #   make go-xst          one step: <board>-xst (.ngc), <board>-impl (.bin), <board>-core (.kg)
 #   make go-report       LUTs, slices, block RAMs and the timing result of the last build
 #   tail -f karabas_go_build.log   the progress of a build: every ISE step writes there too (the synthesis
@@ -50,7 +50,7 @@ endif
 
 # karabas-go-tools must be checked out next to this repository
 MAKE_CORE ?= ../../karabas-go-tools/make_core/make_core.py
-KG = speccywall.kg
+KG = quadspeccyx4.kg
 JSON = core.json
 
 MAP_T_go = 2

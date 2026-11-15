@@ -25,7 +25,7 @@ This repository contains code under different terms. Each part keeps the terms o
    Sorgelig), src/rtl/karabas_go_top.v, the build files and tools/rom2hex.py come from karabas-go-core-quadspeccy
    under the same license):
 
-   Copyright (c) 2026 the contributors of karabas-go-speccywall
+   Copyright (c) 2026 the contributors of karabas-go-quadspeccyx4
 
    Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
    documentation files (the "Software"), to deal in the Software without restriction, including without limitation

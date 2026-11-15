@@ -4,7 +4,7 @@
 /*
  karabas_mini_top.v
 
- SpeccyWall (rtl/speccywall.v) on Karabas Mini (before rev. G; the pins of karabas-go-core-tsconf):
+ QuadSpeccyX4 (rtl/quadspeccyx4.v) on Karabas Mini (before rev. G; the pins of karabas-go-core-tsconf):
    - video: HDMI (hdmi_out: the pixel clock of the core, 73.6 MHz, 1280 x 800 or 720 x 576; DVI when the MCU says
      dvi_only); the VGA_* pins are the
      video of the FT812 into the FPGA: not used;
@@ -115,14 +115,7 @@ assign SD_DI = 1'b1;
 assign SD_CS_N = 1'b1;
 assign SD_CLK = 1'b0;
 
-assign SDR_BA = 2'b00;
-assign SDR_A = 13'd0;
-assign SDR_CLK = 1'b0;
-assign SDR_DQM = 2'b11;
-assign SDR_WE_N = 1'b1;
-assign SDR_CAS_N = 1'b1;
-assign SDR_RAS_N = 1'b1;
-assign SDR_DQ = 16'bZZZZZZZZZZZZZZZZ;
+// the SDRAM: the frame buffer of the wall (fb_sdram.v in the core)
 
 assign WA = 3'd0;
 assign WCS_N = 2'b11;
@@ -160,13 +153,15 @@ assign MCU_IO[1] = mcu_int;
 assign MCU_IO[0] = 1'bZ;
 assign MCU_IO[3:2] = 2'bZZ;
 
-speccywall core(
+quadspeccyx4 core(
 	.CLK_50MHZ(CLK_50MHZ),
 	.clk_bus(clk_bus),
 	.clk_8(clk_8),
 	.pclk(pclk),
 	.areset(areset),
 	.MA(MA), .MD(MD), .MRD_N(MRD_N), .MWR_N(MWR_N),
+	.SDR_CLK(SDR_CLK), .SDR_BA(SDR_BA), .SDR_A(SDR_A), .SDR_DQM(SDR_DQM), .SDR_RAS_N(SDR_RAS_N),
+	.SDR_CAS_N(SDR_CAS_N), .SDR_WE_N(SDR_WE_N), .SDR_DQ(SDR_DQ),
 	.mcu_cs_n(MCU_CS_N), .mcu_sck(MCU_SCK), .mcu_mosi(MCU_MOSI), .mcu_miso(MCU_MISO),
 	.mcu_ft_ss(MCU_IO[3]), .mcu_sd2_ss(MCU_IO[2]),
 	.mcu_int(mcu_int),

@@ -14,7 +14,7 @@
 
  Every interrupt acknowledge of every machine (the M1 with IORQ, bus slot of the machine) is logged with the T-state
  of the frame where it starts, counted from the start of INT (zx_timing: line 239, pixel 312) and taken back by the
- slot of the machine (machine m runs m clocks after machine 0). Checked: the low time of INT (32 T) and its period
+ slot of the machine (machine m runs m clocks after machine 0) and by its staggered raster (13 T a machine, zx_vid). Checked: the low time of INT (32 T) and its period
  (71680 T: one frame), every machine acknowledges once a frame (SHORT=0; SHORT=1 twice: the Z80 takes INT again
  when it is still low after EI / RET, as on the Pentagon), each acknowledge of a machine in a HALT 0..3 T after the
  start of INT, all frames at the same T; the first paper pixel 17988 T after the start of INT. Prints "tb_int: <n> errors".
@@ -86,15 +86,22 @@ wire [15:0] q;
 genvar ge;
 generate
 	for (ge = 0; ge < 2; ge = ge + 1) begin : g_eng
+		wire it;
+		zx_vid #(.BASE(ge)) vid (
+			.clk(clk_bus), .slot(slot), .hc(hc), .vc(vc), .frame(frame), .int_th(it),
+			.gm(), .g_border(3'd0), .g_scr7(1'b0), .f_req(), .f_addr(), .f_tag(), .r_v(1'b0), .r_tag(4'd0),
+			.r_q(16'd0), .w_we(), .w_addr(), .w_data(), .l_done(), .l_m(), .l_lc(), .fs_en(1'b0), .fs_m(3'd0),
+			.p_we(), .p_addr(), .p_data(), .p_v(), .p_e(), .late()
+		);
 		zx_oct #(.BASE(ge)) eng (
-			.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset[ge*8 +: 8]), .nmi(8'd0),
+			.clk(clk_bus), .slot(slot), .int_n(it), .reset(reset[ge*8 +: 8]), .nmi(8'd0),
 			.sel_en(ge == 0), .sel(3'd0), .keys(40'd0), .keys_all(1'b0), .tape_in(8'd0), .kempston(8'd0),
 			.m_req(e_req[ge]), .m_we(e_we[ge]), .m_addr(e_addr[ge*22 +: 22]), .m_din(e_din[ge*8 +: 8]),
 			.m_m(e_m[ge*3 +: 3]), .m_rv(a_rv && a_re == ge), .m_rm(a_rm), .m_rd(a_rd),
 			.divmmc_en(1'b0), .dv_clear(1'b0),
 			.sd_en(1'b0), .sd_csize(22'd0), .h_pend(), .h_wr(), .h_m(3'd0), .h_lba(), .h_done(1'b0), .h_we(1'b0), .h_a(9'd0),
 			.h_d(8'd0), .h_q(),
-			.beeper(), .mic(), .v_m(3'd0), .v_border(), .v_scr7(),
+			.beeper(), .mic(), .v_border(), .v_scr7(),
 			.ay_we(), .ay_wa(), .ay_wd(), .ay_ra(4'd0), .ay_rd(), .late(),
 			.dbg_pc(), .dbg_7ffd(), .dbg_ev()
 		);
@@ -177,8 +184,9 @@ generate
 				int_start >= 0) begin
 				in_ack[ge*8 + bm] = 1'b1;
 				// the clock of the start of T1 of this machine: its cen was in slot bm, 1 clock before this one;
-				// machine bm runs bm clocks after machine 0, so its T relative to INT
-				t = (n - 1 - bm - int_start) / 8;
+				// machine bm runs bm clocks after machine 0 and its raster 13 (ge * 8 + bm) T after zx_timing (zx_vid),
+				// so its T relative to its INT
+				t = (n - 1 - bm - int_start) / 8 - 13 * (ge * 8 + bm);
 				acks[ge*8 + bm] = acks[ge*8 + bm] + 1;
 				frame_acks[ge*8 + bm] = frame_acks[ge*8 + bm] + 1;
 				if (frame_acks[ge*8 + bm] == 1) begin

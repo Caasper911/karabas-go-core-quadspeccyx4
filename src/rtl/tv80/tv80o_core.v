@@ -78,7 +78,7 @@ module tv80o_core (
   output [15:0] A; 
   input [7:0]   dinst;  
   input [7:0]   di;     
-  input [7:0]   rseed;          // karabas: R after a reset (the Z80 has 0; SpeccyWall gives each machine its own)
+  input [7:0]   rseed;          // karabas: R after a reset (the Z80 has 0; QuadSpeccyX4 gives each machine its own)
   output [7:0]  dout;     
   output [6:0]  mc;     
   output [6:0]  ts;     

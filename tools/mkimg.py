@@ -35,7 +35,7 @@ def main():
     bs[3:11] = b'MKIMG   '
     struct.pack_into('<HBHBHHBHHHII', bs, 11, SEC, 1, reserved, nfat, rootent,
                      psec if psec < 65536 else 0, 0xF8, fatsec, 63, 255, start, psec if psec >= 65536 else 0)
-    struct.pack_into('<BBBI11s8s', bs, 36, 0x80, 0, 0x29, 0x12345678, b'SPECCYWALL ', b'FAT16   ')
+    struct.pack_into('<BBBI11s8s', bs, 36, 0x80, 0, 0x29, 0x12345678, b'QSPECCYX4  ', b'FAT16   ')
     bs[510:512] = b'\x55\xaa'
     p0 = start * SEC
     img[p0:p0 + SEC] = bs

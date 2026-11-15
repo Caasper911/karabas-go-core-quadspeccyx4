@@ -1,44 +1,38 @@
 `timescale 1ns / 1ps
-`default_nettype none
 
 /*
  tb_video.v
 
- The full screen path of the core: zx_timing, zx_scr (the screen of machine M through the video port of sram_ctrl,
- the SRAM model with random screen pages), vga_out on pclk = 21/8 clk_bus. The CPU port of sram_ctrl is busy as the
- eight machines can make it at most (8 reads in a row every 3 T-states, from clocks 0..7 of the T-state; BUSY=0:
- random, one clock of two). Every visible pixel of VGA is compared with the picture computed from the memory; the
- lines, rows and the frame period are checked (the frame of Pentagon: 1505280 pclk), after the first lock.
-
- WALL=1 (mode 1): the wall instead (wall_fetch.v): eight machines (two cell rows), machine m with the screen page
- 7 when m[0] ^ m[2] and the border colour 3 m + 1; every pixel of the grid against the memory, SEL the selected cell.
-
- Defines: MODE (1: 1280 x 800, 0: 720 x 576), SCR7, FRAMES (default 3), BUSY, WALL, SEL. Prints "tb_video: <n> errors".
+ The video path of the core: zx_timing, two zx_vid (16 machines, staggered rasters) reading their screens through
+ vid_fetch from the SRAM (sram_ctrl + sram_model, the CPU port as busy as 16 machines make it: BUSY), the frame
+ buffer (fb_sdram + sdram_model) and vga_out, 1280 x 800. Every visible pixel is checked:
+   WALL=1 (default) the wall: cell (cr, c) shows machine 4 cr + c, its paper from the memory (random, page 7 when
+          g[0] ^ g[2]) and its border, which the testbench gives each machine as a function of its raster position
+          (the position written again here) and, with CFT=1, of its cell frame (counted when its raster passes line
+          315, pixel 416, where line 0 of a cell starts): all pixels of a cell in one VGA frame must come from one
+          frame of the machine (no tearing).
+   WALL=0 the full screen of machine FS (scale 3), the left border from the line before.
+ Also the SDRAM model checks its timing, vid_fetch and zx_vid say when a word was late or a queue overflowed.
+ Prints "tb_video: <n> errors".
 */
 
-`ifndef MODE
-`define MODE 1
-`endif
 `ifndef FRAMES
-`define FRAMES 3
+`define FRAMES 4
 `endif
-`ifndef SCR7
-`define SCR7 0
+`ifndef WALL
+`define WALL 1
+`endif
+`ifndef FS
+`define FS 5
 `endif
 `ifndef BUSY
 `define BUSY 1
 `endif
-`ifndef WALL
-`define WALL 0
-`endif
-`ifndef SEL
-`define SEL 5
+`ifndef CFT
+`define CFT 1
 `endif
 
 module tb_video;
-
-localparam [2:0] M = 3'd5;
-localparam [2:0] BORDER = 3'd2;
 
 // clocks: clk_sys half 7 ticks, pclk half 8 ticks of 0.849 ns (exact in ps), clk_bus = clk_sys / 3
 reg clk_sys = 1'b0;
@@ -65,26 +59,119 @@ reg [2:0] slot = 3'd0;
 always @(posedge clk_bus)
 	slot <= ce_cpu ? 3'd1 : slot + 1'd1;
 
-// the CPU port: reads only (the screen stays as loaded)
+// ---------------------------------------------------------------------------------------------
+// the machines as the testbench sees them
+
+function scr7_of;
+	input [3:0] g;
+	scr7_of = g[0] ^ g[2];
+endfunction
+
+// the raster position of machine g given the raster (V, H) of zx_timing: 26 g pixels before (STAGGER 13)
+function [17:0] mpos;
+	input [3:0] g;
+	input [8:0] V;
+	input [8:0] H;
+	integer off;
+	begin
+		off = 26 * g;
+		if (H >= off)
+			mpos = {V, H - off[8:0]};
+		else
+			mpos = {(V == 0) ? 9'd319 : V - 1'd1, H + 9'd448 - off[8:0]};
+	end
+endfunction
+
+function [2:0] hash;
+	input [3:0] g;
+	input [8:0] v;
+	input [8:0] e;
+	hash = (v[2:0] ^ e[3:1] ^ e[6:4] ^ v[5:3]) + 3 * g;
+endfunction
+
+integer cf [0:15];                  // the cell frame of each machine
+integer ci;
+initial for (ci = 0; ci < 16; ci = ci + 1) cf[ci] = 0;
+
+reg [8:0] h4r = 9'd0, v4r = 9'd0;
+always @(posedge clk_bus)
+	if (slot == 3'd4) begin
+		h4r <= hc;
+		v4r <= vc;
+	end
+wire [8:0] H4 = (slot == 3'd4) ? hc : h4r;
+wire [8:0] V4 = (slot == 3'd4) ? vc : v4r;
+wire [2:0] tgm = slot - 3'd4;
+wire [17:0] p0 = mpos({1'b0, tgm}, V4, H4);
+wire [17:0] p1 = mpos({1'b1, tgm}, V4, H4);
+wire n0 = p0 == {9'd315, 9'd416};      // a new cell frame starts with this pair
+wire n1 = p1 == {9'd315, 9'd416};
+wire [2:0] brd0 = hash({1'b0, tgm}, p0[17:9], p0[8:0]) + ((`CFT != 0) ? cf[{1'b0, tgm}] + n0 : 0);
+wire [2:0] brd1 = hash({1'b1, tgm}, p1[17:9], p1[8:0]) + ((`CFT != 0) ? cf[{1'b1, tgm}] + n1 : 0);
+always @(posedge clk_bus) begin
+	if (n0) cf[{1'b0, tgm}] = cf[{1'b0, tgm}] + 1;
+	if (n1) cf[{1'b1, tgm}] = cf[{1'b1, tgm}] + 1;
+end
+
+// ---------------------------------------------------------------------------------------------
+// the design
+
+wire [1:0] f_req, w_we, l_done, r_v;
+wire [41:0] f_addr;
+wire [7:0] f_tag;
+wire [3:0] r_tag;
+wire [15:0] r_q;
+wire [21:0] w_addr;
+wire [31:0] w_data;
+wire [5:0] l_m, gm;
+wire [15:0] l_lc;
+wire [7:0] late0, late1;
+wire [1:0] p_we;
+wire [19:0] p_addr;
+wire [15:0] p_data;
+wire it0, it1;
+
+zx_vid #(.BASE(0)) vid0 (
+	.clk(clk_bus), .slot(slot), .hc(hc), .vc(vc), .frame(frame), .int_th(it0),
+	.gm(gm[2:0]), .g_border(brd0), .g_scr7(scr7_of({1'b0, gm[2:0]})),
+	.f_req(f_req[0]), .f_addr(f_addr[20:0]), .f_tag(f_tag[3:0]), .r_v(r_v[0]), .r_tag(r_tag), .r_q(r_q),
+	.w_we(w_we[0]), .w_addr(w_addr[10:0]), .w_data(w_data[15:0]), .l_done(l_done[0]), .l_m(l_m[2:0]), .l_lc(l_lc[7:0]),
+	.fs_en(`FS < 8), .fs_m(`FS % 8), .p_we(p_we[0]), .p_addr(p_addr[9:0]), .p_data(p_data[7:0]), .p_v(), .p_e(),
+	.late(late0)
+);
+zx_vid #(.BASE(1)) vid1 (
+	.clk(clk_bus), .slot(slot), .hc(hc), .vc(vc), .frame(frame), .int_th(it1),
+	.gm(gm[5:3]), .g_border(brd1), .g_scr7(scr7_of({1'b1, gm[5:3]})),
+	.f_req(f_req[1]), .f_addr(f_addr[41:21]), .f_tag(f_tag[7:4]), .r_v(r_v[1]), .r_tag(r_tag), .r_q(r_q),
+	.w_we(w_we[1]), .w_addr(w_addr[21:11]), .w_data(w_data[31:16]), .l_done(l_done[1]), .l_m(l_m[5:3]),
+	.l_lc(l_lc[15:8]),
+	.fs_en(`FS >= 8), .fs_m(`FS % 8), .p_we(p_we[1]), .p_addr(p_addr[19:10]), .p_data(p_data[15:8]), .p_v(), .p_e(),
+	.late(late1)
+);
+
+// the CPU port: reads only (the screens stay as loaded), at most one a clock, 16 machines at one per 3 T-states
 reg c_req = 1'b0;
 reg [21:0] c_addr = 22'd0;
-reg [4:0] t3 = 5'd0;              // clocks in 3 T-states
+reg [4:0] t3 = 5'd0;
 integer seed = 1;
 always @(posedge clk_bus) begin
 	t3 <= (ce_cpu && t3 >= 5'd16) ? 5'd0 : t3 + 1'd1;
-	c_req <= `BUSY ? (t3 < 5'd8) : ($random(seed) & 1);
+	c_req <= `BUSY ? (t3 < 5'd16) : ($random(seed) & 1);
 	c_addr <= $random(seed);
 end
 
-wire v_req, v_ack, s_req, w_req;
-wire [20:0] v_addr, s_addr, w_addr;
-assign v_req = (`WALL != 0) ? w_req : s_req;
-assign v_addr = (`WALL != 0) ? w_addr : s_addr;
+wire v_req, v_ack, over_f;
+wire [20:0] v_addr;
 wire [15:0] q;
 wire [20:0] MA;
 wire [15:0] MD;
 wire [1:0] MRD_N, MWR_N;
 
+vid_fetch vf (
+	.clk(clk_bus), .f_req(f_req), .f_addr(f_addr), .f_tag(f_tag),
+	.v_req(v_req), .v_addr(v_addr), .v_ack(v_ack), .q(q),
+	.r_v(r_v), .r_tag(r_tag), .r_q(r_q), .over(over_f)
+);
 sram_ctrl sram (
 	.clk_bus(clk_bus), .clk_sys(clk_sys),
 	.c_req(c_req), .c_we(1'b0), .c_addr(c_addr), .c_din(8'd0),
@@ -93,75 +180,78 @@ sram_ctrl sram (
 );
 sram_model model (.A(MA), .DQ(MD), .RD_N(MRD_N), .WR_N(MWR_N), .drv(sram.md_oe[0]));
 
-wire [3:0] pix;
-zx_scr scr (
-	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .flash(frame[4]),
-	.m({1'b0, M}), .scr7(`SCR7 != 0), .border(BORDER), .diag_en(1'b0), .diag(96'd0),
-	.v_req(s_req), .v_addr(s_addr), .v_ack(v_ack & (`WALL == 0)), .q(q),
-	.pix(pix)
-);
+wire rq_t, rq_half, fb_ready, over_l;
+wire [1:0] rq_cr;
+wire [7:0] rq_lc;
+wire [9:0] rb_addr;
+wire [15:0] rb_q;
+wire SDR_CLK, SDR_RAS_N, SDR_CAS_N, SDR_WE_N;
+wire [1:0] SDR_BA, SDR_DQM;
+wire [12:0] SDR_A;
+wire [15:0] SDR_DQ;
 
-// the wall: the border and the screen page of machine v_m as zx_oct gives them
-wire [3:0] w_m;
-wire wb_we;
-wire [6:0] wb_addr;
-wire [31:0] wb_data;
-wire [23:0] brd;
-function [2:0] m_brd;
-	input [3:0] m;
-	m_brd = 3 * m + 1;
-endfunction
-function m_scr7;
-	input [3:0] m;
-	m_scr7 = m[0] ^ m[2];
-endfunction
-wall_fetch #(.ROWS(2)) wall (
-	.clk(clk_bus), .en(`WALL != 0), .ce7(ce7), .hc(hc), .vc(vc),
-	.v_m(w_m), .v_border(m_brd(w_m)), .v_scr7(m_scr7(w_m)),
-	.v_req(w_req), .v_addr(w_addr), .v_ack(v_ack & (`WALL != 0)), .q(q),
-	.wb_we(wb_we), .wb_addr(wb_addr), .wb_data(wb_data), .brd(brd)
+fb_sdram #(.INIT_WAIT(16'd200)) fb (
+	.clk(clk_sys), .clk_bus(clk_bus), .pclk(pclk),
+	.w_we(w_we), .w_addr(w_addr), .w_data(w_data), .l_done(l_done), .l_m(l_m), .l_lc(l_lc),
+	.rq_t(rq_t), .rq_cr(rq_cr), .rq_lc(rq_lc), .rq_half(rq_half), .rb_addr(rb_addr), .rb_q(rb_q),
+	.ready(fb_ready), .over(over_l),
+	.SDR_CLK(SDR_CLK), .SDR_BA(SDR_BA), .SDR_A(SDR_A), .SDR_DQM(SDR_DQM), .SDR_RAS_N(SDR_RAS_N),
+	.SDR_CAS_N(SDR_CAS_N), .SDR_WE_N(SDR_WE_N), .SDR_DQ(SDR_DQ)
+);
+sdram_model #(.ROWS(1024), .RB(10)) sdram (
+	.clk(SDR_CLK), .ba(SDR_BA), .a(SDR_A), .dqm(SDR_DQM), .ras_n(SDR_RAS_N), .cas_n(SDR_CAS_N), .we_n(SDR_WE_N),
+	.dq(SDR_DQ)
 );
 
 wire [7:0] r, g, b;
 wire hs, vs, de, hs_neg, vs_neg;
 vga_out vga (
-	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .w_ce7(ce7), .w_hc(hc), .w_vc(vc), .pix(pix), .mode_i(`MODE != 0),
-	.wall_i(`WALL != 0), .sel_i(4'd`SEL), .flash_i(frame[4]), .frame_col(3'd4), .rim_on(1'b1),
-	.wb_we(wb_we), .wb_addr(wb_addr), .wb_data(wb_data), .brd_i(brd),
-	.pclk(pclk), .r(r), .g(g), .b(b), .hs(hs), .vs(vs), .de(de), .hs_neg(hs_neg), .vs_neg(vs_neg)
+	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc),
+	.lb_we(|p_we), .lb_wa(p_we[1] ? p_addr[19:10] : p_addr[9:0]), .lb_wd(p_we[1] ? p_data[15:8] : p_data[7:0]),
+	.mode_i(1'b1), .wall_i(`WALL != 0), .sel_i(4'd0), .frame_col(3'd4), .rim_on(1'b0),
+	.pclk(pclk), .rq_t(rq_t), .rq_cr(rq_cr), .rq_lc(rq_lc), .rq_half(rq_half), .rb_addr(rb_addr), .rb_q(rb_q),
+	.r(r), .g(g), .b(b), .hs(hs), .vs(vs), .de(de), .hs_neg(hs_neg), .vs_neg(vs_neg)
 );
 
+// the wait of a screen read: from the request of zx_vid to its word (the most, in clocks)
+integer rq_at [0:31];
+integer rq_max = 0, nclk = 0;
+always @(posedge clk_bus) begin
+	nclk = nclk + 1;
+	if (f_req[0]) rq_at[{1'b0, f_tag[3:0]}] = nclk;
+	if (f_req[1]) rq_at[{1'b1, f_tag[7:4]}] = nclk;
+	if (r_v[0] && nclk - rq_at[{1'b0, r_tag}] > rq_max) rq_max = nclk - rq_at[{1'b0, r_tag}];
+	if (r_v[1] && nclk - rq_at[{1'b1, r_tag}] > rq_max) rq_max = nclk - rq_at[{1'b1, r_tag}];
+end
+
 // ---------------------------------------------------------------------------------------------
-// the screen pages 5 and 7 of machine M: random
+// the screens: random
 
 integer i;
 initial
 	for (i = 0; i < (1 << 21); i = i + 1)
 		model.mem[i] = $random(seed);
 
-function [7:0] mbyte;              // byte o of the page of the screen of machine M
+function [7:0] mbyte;              // byte o of the screen of machine g
+	input [3:0] g;
 	input [13:0] o;
 	reg [15:0] w;
 	begin
-		w = model.mem[{2'b00, M, (`SCR7 != 0) ? 3'd7 : 3'd5, o[13:1]}];
+		w = model.mem[{1'b0, g, scr7_of(g) ? 3'd7 : 3'd5, o[13:1]}];
 		mbyte = o[0] ? w[15:8] : w[7:0];
 	end
 endfunction
 
-// the colour {bright, G, R, B} of Spectrum line sl, pixel hc (frame[4] is 0 in the first 16 frames: no flash)
-function [3:0] zx_pix;
-	input [8:0] sl;
+// the paper pixel h of line v of machine g
+function [3:0] paper_pix;
+	input [3:0] g;
+	input [8:0] v;
 	input [8:0] h;
 	reg [7:0] bm, at;
 	begin
-		if ((h >= 9'd320 && h < 9'd384) || (sl >= 9'd240 && sl < 9'd256))
-			zx_pix = 4'd0;
-		else if (sl < 9'd192 && h < 9'd256) begin
-			bm = mbyte({1'b0, sl[7:6], sl[2:0], sl[5:3], h[7:3]});
-			at = mbyte({1'b0, 3'b110, sl[7:3], h[7:3]});
-			zx_pix = bm[3'd7 - h[2:0]] ? {at[6], at[2:0]} : {at[6], at[5:3]};
-		end else
-			zx_pix = {1'b0, BORDER};
+		bm = mbyte(g, {1'b0, v[7:6], v[2:0], v[5:3], h[7:3]});
+		at = mbyte(g, {1'b0, 3'b110, v[7:3], h[7:3]});
+		paper_pix = bm[3'd7 - h[2:0]] ? {at[6], at[2:0]} : {at[6], at[5:3]};
 	end
 endfunction
 
@@ -174,127 +264,103 @@ function [23:0] rgb;
 	end
 endfunction
 
-// the wall: the colour of paper pixel px, line pr of machine m
-function [3:0] wall_pix;
-	input [3:0] m;
-	input [7:0] pr;
-	input [7:0] px;
-	reg [15:0] wb, wa;
-	reg [7:0] bm, at;
-	begin
-		wb = model.mem[{2'b00, m[2:0], m_scr7(m) ? 3'd7 : 3'd5, 1'b0, pr[7:6], pr[2:0], pr[5:3], px[7:4]}];
-		wa = model.mem[{2'b00, m[2:0], m_scr7(m) ? 3'd7 : 3'd5, 1'b0, 3'b110, pr[7:3], px[7:4]}];
-		bm = px[3] ? wb[15:8] : wb[7:0];
-		at = px[3] ? wa[15:8] : wa[7:0];
-		wall_pix = bm[3'd7 - px[2:0]] ? {at[6], at[2:0]} : {at[6], at[5:3]};
-	end
-endfunction
-
-// the expected colour of visible pixel x, y
-function [23:0] expect_rgb;
-	input integer x;
-	input integer y;
-	integer py, sx, cc, cx, cr, lc;
-	reg [8:0] sl, h;
-	begin
-		if (`WALL != 0) begin
-			cc = x / 320;
-			cx = x % 320;
-			cr = y / 200;
-			lc = y % 200;
-			if (cr >= 2)
-				expect_rgb = 24'h303030;
-			else if (cr * 4 + cc == `SEL && (cx < 2 || cx >= 318 || lc < 2 || lc >= 198))
-				expect_rgb = 24'h00FF00;     // the frame of the selected cell: green
-			else if (cx < 32 || cx >= 288 || lc < 4 || lc >= 196)
-				expect_rgb = rgb({1'b0, m_brd(cr * 4 + cc)});
-			else
-				expect_rgb = rgb(wall_pix(cr * 4 + cc, lc - 4, cx - 32));
-		end else if (`MODE != 0) begin
-			py = (848 + y) % 960;
-			// the whole 1280 x 800 at scale 3: the paper at x 255, its border 64 pixels each side, further out the
-			// outermost border pixel of the line
-			sl = py / 3;
-			sx = x / 3;
-			h = (sx < 21) ? 384 : (sx < 85) ? sx + 363 : (sx >= 405) ? 319 : sx - 85;
-			expect_rgb = rgb(zx_pix(sl, h));
-		end else begin
-			py = (544 + y) % 640;
-			sl = py / 2;
-			sx = (4 * x) / 21;
-			h = (sx < 56) ? sx + 392 : sx - 56;
-			expect_rgb = rgb(zx_pix(sl, h));
-		end
-	end
-endfunction
-
 // ---------------------------------------------------------------------------------------------
 // checks on pclk
 
-localparam integer W = (`MODE != 0) ? 1280 : 1932;
-localparam integer HROWS = (`MODE != 0) ? 800 : 576;
-localparam integer HT = (`MODE != 0) ? 1568 : 2352;
+integer errors = 0, shown = 0, checked = 0;
+integer x = 0, y = 0, frames = 0;
+reg de_d = 1'b0, vs_d = 1'b0;
+integer cell_cf [0:15];             // the frame a cell shows in this VGA frame (-1: not seen yet)
+reg [23:0] ex;
+reg [3:0] pg;
+reg [8:0] pv, pe, sl, hh;
+integer cr, cc, lc, cx, sx, py, k;
+reg is_brd;
 
-integer errors = 0, shown = 0;
-integer x = 0, y = 0, frames = 0, pix_checked = 0;
-integer hs_n = 0, vs_n = 0, last_hs = -1, last_vs = -1, clk_n = 0;
-reg de_d = 1'b0, hs_d = 1'b0, vs_d = 1'b0;
-reg [23:0] e;
+task bad;
+	input [8*48-1:0] what;
+	begin
+		errors = errors + 1;
+		if (shown < 20) begin
+			shown = shown + 1;
+			$display("frame %0d x %0d y %0d: %0s (%h, expected %h)", frames, x, y, what, {r, g, b}, ex);
+		end
+	end
+endtask
 
 always @(posedge pclk) begin
-	clk_n = clk_n + 1;
 	de_d <= de;
-	hs_d <= hs;
 	vs_d <= vs;
-	if (hs && !hs_d) begin
-		if (frames >= 2 && last_hs >= 0 && clk_n - last_hs != HT) begin
-			errors = errors + 1;
-			$display("line of %0d pclk (frame %0d)", clk_n - last_hs, frames);
-		end
-		last_hs = clk_n;
-	end
 	if (vs && !vs_d) begin
-		if (frames >= 2 && clk_n - last_vs != 1505280) begin
-			errors = errors + 1;
-			$display("frame of %0d pclk", clk_n - last_vs);
-		end
-		if (frames >= 2 && y != HROWS) begin
-			errors = errors + 1;
-			$display("frame %0d: %0d rows", frames, y);
-		end
-		last_vs = clk_n;
 		frames = frames + 1;
 		y = 0;
-		if (frames == `FRAMES + 2) begin
-			$display("tb_video: mode %0d, %0d frames, %0d pixels checked", `MODE, `FRAMES, pix_checked);
+		if (`WALL != 0 && frames >= 4)
+			$display("frame %0d: the cells show the frames %0d %0d %0d %0d / %0d %0d %0d %0d / %0d %0d %0d %0d / %0d %0d %0d %0d of their machines (mod 8), now at %0d",
+				frames - 1, cell_cf[0], cell_cf[1], cell_cf[2], cell_cf[3], cell_cf[4], cell_cf[5], cell_cf[6], cell_cf[7],
+				cell_cf[8], cell_cf[9], cell_cf[10], cell_cf[11], cell_cf[12], cell_cf[13], cell_cf[14], cell_cf[15], cf[0]);
+		for (k = 0; k < 16; k = k + 1) cell_cf[k] = -1;
+		if (frames == `FRAMES + 3) begin
+			$display("tb_video: wall %0d, %0d frames, %0d pixels checked; late %h %h, overflow %b %b, SDRAM model errors %0d, a screen word waited at most %0d clocks",
+				`WALL, `FRAMES, checked, late1, late0, over_f, over_l, sdram.errors, rq_max);
+			errors = errors + sdram.errors + over_f + over_l + (late0 != 0) + (late1 != 0);
 			$display("tb_video: %0d errors", errors);
 			$finish;
 		end
 	end
 	if (de) begin
-		if (frames >= 2) begin
-			e = expect_rgb(x, y);
-			pix_checked = pix_checked + 1;
-			if ({r, g, b} !== e) begin
-				errors = errors + 1;
-				if (shown < 20) begin
-					shown = shown + 1;
-					$display("frame %0d x %0d y %0d: %h, expected %h", frames, x, y, {r, g, b}, e);
+		if (frames >= 3) begin
+			checked = checked + 1;
+			if (`WALL != 0) begin
+				cr = y / 200; lc = y % 200; cc = x / 320; cx = x % 320;
+				pg = 4 * cr + cc;
+				pv = (lc < 4) ? 316 + lc : lc - 4;
+				if (cx < 32) begin
+					pe = cx + 416;
+					pv = (pv == 0) ? 319 : pv - 1;
+				end else
+					pe = cx - 32;
+				is_brd = !(pv < 192 && pe < 256);
+				if (!is_brd) begin
+					ex = rgb(paper_pix(pg, pv, pe));
+					if ({r, g, b} !== ex) bad("paper");
+				end else begin
+					// the border: the frame of the cell from the colour, the same for the whole cell
+					k = -1;
+					for (i = 0; i < 8; i = i + 1)
+						if (rgb({1'b0, hash(pg, pv, {pe[8:1], 1'b0}) + ((`CFT != 0) ? i[2:0] : 3'd0)}) === {r, g, b}) k = i;
+					ex = rgb({1'b0, hash(pg, pv, {pe[8:1], 1'b0})});
+					if (k < 0 || (`CFT == 0 && k != 0))
+						bad("border");
+					else if (cell_cf[pg] < 0)
+						cell_cf[pg] = k;
+					else if (cell_cf[pg] != k)
+						bad("border of another frame of the machine");
 				end
+			end else begin
+				py = (848 + y) % 960;
+				sl = py / 3;
+				sx = x / 3;
+				hh = (sx < 21) ? 384 : (sx < 85) ? sx + 363 : (sx >= 405) ? 319 : sx - 85;
+				pv = (hh >= 384) ? ((sl == 0) ? 319 : sl - 1) : sl;
+				if ((hh >= 320 && hh < 384) || (pv >= 240 && pv < 256))
+					ex = 24'd0;
+				else if (pv < 192 && hh < 256)
+					ex = rgb(paper_pix(`FS, pv, hh));
+				else
+					ex = rgb({1'b0, hash(`FS, pv, {hh[8:1], 1'b0}) + ((`CFT != 0) ? cf[`FS] : 0)});
+				// (the cell frame changes at line 315: around it the line buffer has the frame before)
+				if ({r, g, b} !== ex && !((`CFT != 0) && pv >= 300))
+					bad("full screen");
 			end
 		end
 		x = x + 1;
 	end else if (de_d) begin
-		if (frames >= 2 && x != W) begin
+		if (frames >= 3 && x != 1280) begin
 			errors = errors + 1;
 			$display("frame %0d row %0d: %0d pixels", frames, y, x);
 		end
 		x = 0;
 		y = y + 1;
-	end
-	if (frames >= 2 && (hs_neg !== 1'b1 || vs_neg !== (`MODE == 0))) begin
-		if (shown < 20) begin shown = shown + 1; $display("sync polarity"); end
-		errors = errors + 1;
 	end
 end
 

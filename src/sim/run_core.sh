@@ -20,6 +20,7 @@ $PY ../../tools/rom2hex.py ../roms/128.rom ../roms/48.rom work_c/roms.hex
 {
 	sed -n 's/^verilog work "\(.*\)"/verilog work "..\/..\/\1"/p' ../karabas_go.prj | grep -v karabas_go_top
 	echo 'verilog work "../sram_model.v"'
+	echo 'verilog work "../sdram_model.v"'
 	echo 'verilog work "../tb_core.v"'
 	echo "verilog work \"$(cygpath -m "$XILINX" 2>/dev/null || echo "$XILINX")/verilog/src/glbl.v\""
 } > work_c/tb.prj

@@ -4,8 +4,8 @@
 /*
  tb_core.v
 
- The whole core (speccywall.v with its PLLs, the MCU link idle) on the SRAM model; the ROM written into zx_oct
- directly (the loader of the MCU is not simulated), the BUSY of the MCU forced to 0 after 2 us. Prints the diagnostics of the core (the squares of zx_scr) every
+ The whole core (quadspeccyx4.v with its PLLs, the MCU link idle) on the SRAM model; the ROM written into zx_oct
+ directly (the loader of the MCU is not simulated), the BUSY of the MCU forced to 0 after 2 us. Prints the diagnostics of the core (the diagnostics squares) every
  100 000 clocks of clk_bus and the border of the selected machine: the machines must run (bring-up of the board).
 */
 
@@ -23,10 +23,12 @@ wire [15:0] MD;
 wire [1:0] MRD_N, MWR_N;
 wire clk_bus;
 
-speccywall #(.MEMTEST_AW(10)) dut (
+quadspeccyx4 #(.MEMTEST_AW(10)) dut (
 	.CLK_50MHZ(clk50),
 	.clk_bus(clk_bus), .clk_8(), .pclk(), .areset(),
 	.MA(MA), .MD(MD), .MRD_N(MRD_N), .MWR_N(MWR_N),
+	.SDR_CLK(SDR_CLK), .SDR_BA(SDR_BA), .SDR_A(SDR_A), .SDR_DQM(SDR_DQM), .SDR_RAS_N(SDR_RAS_N),
+	.SDR_CAS_N(SDR_CAS_N), .SDR_WE_N(SDR_WE_N), .SDR_DQ(SDR_DQ),
 	.mcu_cs_n(1'b1), .mcu_sck(1'b0), .mcu_mosi(1'b0), .mcu_miso(), .mcu_ft_ss(1'b1), .mcu_sd2_ss(1'b1),
 	.mcu_int(), .dvi_only(),
 	.ft_spi_on(), .ft_vga_on(), .ft_sck(), .ft_mosi(), .ft_cs_n(), .ft_reset(), .ft_miso(1'b1),
@@ -35,6 +37,14 @@ speccywall #(.MEMTEST_AW(10)) dut (
 	.audio_l(), .audio_r()
 );
 
+wire SDR_CLK, SDR_RAS_N, SDR_CAS_N, SDR_WE_N;
+wire [1:0] SDR_BA, SDR_DQM;
+wire [12:0] SDR_A;
+wire [15:0] SDR_DQ;
+sdram_model #(.ROWS(1024), .RB(10)) sdram (
+	.clk(SDR_CLK), .ba(SDR_BA), .a(SDR_A), .dqm(SDR_DQM), .ras_n(SDR_RAS_N), .cas_n(SDR_CAS_N), .we_n(SDR_WE_N),
+	.dq(SDR_DQ)
+);
 sram_model model (.A(MA), .DQ(MD), .RD_N(MRD_N), .WR_N(MWR_N), .drv(dut.sram.md_oe[0]));
 
 reg [15:0] romw [0:16383];

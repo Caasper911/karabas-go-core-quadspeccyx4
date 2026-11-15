@@ -168,7 +168,6 @@ wire divmmc_en = 1'b1;
 wire divmmc_en = 1'b0;
 `endif
 wire [7:0] beeper, mic;
-reg [2:0] v_m = 3'd0;
 wire [2:0] v_border;
 wire v_scr7;
 wire ay_we;
@@ -176,26 +175,34 @@ wire [3:0] ay_wa;
 wire [7:0] ay_wd;
 wire [7:0] late;
 
+// INT: the value at slot 0 for every CPU (the engines take the INT of the CPU of each slot; zx_vid staggers it in the
+// core, not here), the golden CPUs the same
+reg g_int_t = 1'b1;
+always @(posedge clk_bus)
+	if (slot == 3'd0)
+		g_int_t <= int_n;
+wire g_int_n = (slot == 3'd0) ? int_n : g_int_t;
+
 wire [5:0] e_m;
 zx_oct #(.BASE(2'd0)) eng (
-	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset), .nmi(nmi),
+	.clk(clk_bus), .slot(slot), .int_n(g_int_n), .reset(reset), .nmi(nmi),
 	.sel_en(1'b1), .sel(sel), .keys(keys), .keys_all(keys_all), .tape_in(tape_in), .kempston(kempston),
 	.m_req(m_req), .m_we(m_we), .m_addr(m_addr), .m_din(m_din), .m_m(e_m[2:0]), .m_rv(m_rv & ~m_re), .m_rm(m_rm), .m_rd(m_rd),
 	.divmmc_en(divmmc_en), .dv_clear(1'b0),
 	.sd_en(1'b0), .sd_csize(22'd0), .h_pend(), .h_wr(), .h_m(3'd0), .h_lba(), .h_done(1'b0), .h_we(1'b0), .h_a(9'd0),
 	.h_d(8'd0), .h_q(),
-	.beeper(beeper), .mic(mic), .v_m(v_m), .v_border(v_border), .v_scr7(v_scr7),
+	.beeper(beeper), .mic(mic), .v_border(v_border), .v_scr7(v_scr7),
 	.ay_we(ay_we), .ay_wa(ay_wa), .ay_wd(ay_wd), .ay_ra(4'd0), .ay_rd(), .late(late)
 );
 
 zx_oct #(.BASE(2'd1), .LFSR_INIT(16'h1D2B)) eng1 (     // (the LFSR of eng: R the same, in lock step)
-	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset), .nmi(nmi),
+	.clk(clk_bus), .slot(slot), .int_n(g_int_n), .reset(reset), .nmi(nmi),
 	.sel_en(1'b1), .sel(sel), .keys(keys), .keys_all(keys_all), .tape_in(tape_in), .kempston(kempston),
 	.m_req(e1_req), .m_we(e1_we), .m_addr(e1_addr), .m_din(e1_din), .m_m(e_m[5:3]), .m_rv(m_rv & m_re), .m_rm(m_rm), .m_rd(m_rd),
 	.divmmc_en(divmmc_en), .dv_clear(1'b0),
 	.sd_en(1'b0), .sd_csize(22'd0), .h_pend(), .h_wr(), .h_m(3'd0), .h_lba(), .h_done(1'b0), .h_we(1'b0), .h_a(9'd0),
 	.h_d(8'd0), .h_q(),
-	.beeper(), .mic(), .v_m(3'd0), .v_border(), .v_scr7(),
+	.beeper(), .mic(), .v_border(), .v_scr7(),
 	.ay_we(), .ay_wa(), .ay_wd(), .ay_ra(4'd0), .ay_rd(), .late(late1)
 );
 
@@ -318,12 +325,6 @@ end
 reg [7:0] g_rst_n = 8'h00;
 always @* g_rst_n = ~reset;
 
-// INT as the engine: the value at slot 0
-reg g_int_t = 1'b1;
-always @(posedge clk_bus)
-	if (slot == 3'd0)
-		g_int_t <= int_n;
-wire g_int_n = (slot == 3'd0) ? int_n : g_int_t;
 
 wire [8*16-1:0] gA;
 wire [8*8-1:0] gdo;

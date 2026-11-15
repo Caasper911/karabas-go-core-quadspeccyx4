@@ -1,6 +1,6 @@
 {
-    "id": "speccywall",
-    "name": "SpeccyWall",
+    "id": "quadspeccyx4",
+    "name": "QuadSpeccyX4",
     "visible": true,
     "type": "osd",
     "link": 2,
@@ -23,15 +23,15 @@
     ],
     "boards": {
         "go": {
-            "build": "26111505",
+            "build": "26111601",
             "bitstream": "karabas_go.bin"
         },
         "mini": {
-            "build": "26111505",
+            "build": "26111601",
             "bitstream": "karabas_mini.bin"
         },
         "minig": {
-            "build": "26111505",
+            "build": "26111601",
             "bitstream": "karabas_minig.bin"
         }
     },

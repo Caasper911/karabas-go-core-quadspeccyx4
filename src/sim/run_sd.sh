@@ -46,6 +46,8 @@ verilog work "../../rtl/tv80/tv80o_reg.v"
 verilog work "../../rtl/tv80/tv80o_core.v"
 verilog work "../../rtl/zx/zx_timing.v"
 verilog work "../../rtl/zx/zx_oct.v"
+verilog work "../../rtl/video/zx_vid.v"
+verilog work "../../rtl/video/vid_fetch.v"
 verilog work "../../rtl/sd/sd_oct.v"
 verilog work "../../rtl/sd/sd_host.v"
 verilog work "../../../modules/rtl/mem/kg_tdpram.v"
@@ -56,7 +58,7 @@ verilog work "../sram_model.v"
 verilog work "../tb_sd.v"
 PRJ
 cd work_d
-fuse -intstyle silent -prj tb.prj -o $EXE -d FRAMES=${1:-8} ${LAT:+-d LAT=$LAT} ${STAGGER:+-d STAGGER=$STAGGER} ${FUSE_DEFS} work.tb_sd > fuse.log 2>&1 || { grep -E "ERROR" fuse.log | head -20; exit 1; }
+fuse -intstyle silent -prj tb.prj -o $EXE -i .. -d FRAMES=${1:-8} ${LAT:+-d LAT=$LAT} ${STAGGER:+-d STAGGER=$STAGGER} ${FUSE_DEFS} work.tb_sd > fuse.log 2>&1 || { grep -E "ERROR" fuse.log | head -20; exit 1; }
 printf 'run all\nquit\n' > run.tcl
 $EXE -intstyle silent -tclbatch run.tcl | tee sim.log | grep -vE "^(Stopped|INFO|WARNING|ISim|This is|Time res|Simulator|Finished|---|\s*$)" | head -80
 [ -f screens.hex ] && $PY ../../../tools/render_wall.py screens.hex screens.png

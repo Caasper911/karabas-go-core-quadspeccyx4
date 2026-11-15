@@ -79,18 +79,40 @@ wire [21:0] c_size;
 wire [5:0] e_vb;
 wire [11:0] e_7ffd;
 
+// the video of the engines (zx_vid: the staggered rasters and their INT, the screen reads on the video port)
+wire [1:0] f_req, r_v, e_pwe;
+wire [41:0] f_addr;
+wire [7:0] f_tag;
+wire [3:0] r_tag;
+wire [15:0] r_q, e_vlate;
+wire [5:0] e_vbx;
+wire [1:0] e_s7x;
+wire [15:0] e_pd;
+wire [17:0] e_pv, e_pe;
+wire v_req, v_ack, vf_over;
+wire [20:0] v_addr;
+
 genvar ge;
 generate
 	for (ge = 0; ge < 2; ge = ge + 1) begin : g_eng
+		wire it;
+		zx_vid #(.BASE(ge)) vid (
+			.clk(clk_bus), .slot(slot), .hc(hc), .vc(vc), .frame(frame), .int_th(it),
+			.gm(), .g_border(e_vbx[ge*3 +: 3]), .g_scr7(e_s7x[ge]), .f_req(f_req[ge]), .f_addr(f_addr[ge*21 +: 21]),
+			.f_tag(f_tag[ge*4 +: 4]), .r_v(r_v[ge]), .r_tag(r_tag), .r_q(r_q), .w_we(), .w_addr(), .w_data(),
+			.l_done(), .l_m(), .l_lc(), .fs_en(ge == 0), .fs_m(3'd0),
+			.p_we(e_pwe[ge]), .p_addr(), .p_data(e_pd[ge*8 +: 8]), .p_v(e_pv[ge*9 +: 9]), .p_e(e_pe[ge*9 +: 9]),
+			.late(e_vlate[ge*8 +: 8])
+		);
 		zx_oct #(.BASE(ge)) eng (
-			.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset[ge*8 +: 8]), .nmi(8'd0),
+			.clk(clk_bus), .slot(slot), .int_n(it), .reset(reset[ge*8 +: 8]), .nmi(8'd0),
 			.sel_en(ge == 0), .sel(3'd0), .keys(40'd0), .keys_all(1'b0), .tape_in(8'd0), .kempston(8'd0),
 			.m_req(e_req[ge]), .m_we(e_we[ge]), .m_addr(e_addr[ge*22 +: 22]), .m_din(e_din[ge*8 +: 8]),
 			.m_m(e_m[ge*3 +: 3]), .m_rv(a_rv && a_re == ge), .m_rm(a_rm), .m_rd(a_rd),
 			.divmmc_en(1'b1), .dv_clear(n < 100),
 			.sd_en(1'b1), .sd_csize(c_size), .h_pend(h_pend[ge*8 +: 8]), .h_wr(h_wr[ge*8 +: 8]), .h_m(h_m),
 			.h_lba(h_lba[ge*32 +: 32]), .h_done(h_done[ge]), .h_we(h_we[ge]), .h_a(h_a), .h_d(h_d), .h_q(h_q[ge*8 +: 8]),
-			.beeper(), .mic(), .v_m(3'd0), .v_border(), .v_scr7(),
+			.beeper(), .mic(), .v_border(e_vbx[ge*3 +: 3]), .v_scr7(e_s7x[ge]),
 			.ay_we(), .ay_wa(), .ay_wd(), .ay_ra(4'd0), .ay_rd(), .late(late[ge*8 +: 8]),
 			.dbg_pc(), .dbg_7ffd(), .dbg_ev()
 		);
@@ -111,8 +133,13 @@ wire [1:0] MRD_N, MWR_N;
 sram_ctrl sram (
 	.clk_bus(clk_bus), .clk_sys(clk_sys),
 	.c_req(c_req), .c_we(c_we), .c_addr(c_addr), .c_din(c_din),
-	.v_req(1'b0), .v_addr(21'd0), .v_ack(), .q(q),
+	.v_req(v_req), .v_addr(v_addr), .v_ack(v_ack), .q(q),
 	.MA(MA), .MD(MD), .MRD_N(MRD_N), .MWR_N(MWR_N)
+);
+vid_fetch vf (
+	.clk(clk_bus), .f_req(f_req), .f_addr(f_addr), .f_tag(f_tag),
+	.v_req(v_req), .v_addr(v_addr), .v_ack(v_ack), .q(q),
+	.r_v(r_v), .r_tag(r_tag), .r_q(r_q), .over(vf_over)
 );
 sram_model model (.A(MA), .DQ(MD), .RD_N(MRD_N), .WR_N(MWR_N), .drv(sram.md_oe[0]));
 
@@ -301,6 +328,10 @@ always @(posedge clk_bus) begin
 				$display("late reads %b", late);
 				errors = errors + 1;
 			end
+			if (e_vlate != 16'd0 || vf_over) begin
+				$display("screen words late %b, the screen read queue overflowed %b", e_vlate, vf_over);
+				errors = errors + 1;
+			end
 			errors = errors + model.errors;
 			$display("tb_sd: SRAM model errors %0d", model.errors);
 			$display("tb_sd: %0d errors", errors);
@@ -308,5 +339,7 @@ always @(posedge clk_bus) begin
 		end
 	end
 end
+
+`include "sram_load.vh"
 
 endmodule

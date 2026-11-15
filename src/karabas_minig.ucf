@@ -1,4 +1,4 @@
-# Karabas Mini rev. G: pins (from karabas-go-core-tsconf karabas_minig.ucf) and the timing of SpeccyWall (the same as karabas_go.ucf)
+# Karabas Mini rev. G: pins (from karabas-go-core-tsconf karabas_minig.ucf) and the timing of QuadSpeccyX4 (the same as karabas_go.ucf)
 # Backward-incompatible with lower Karabas-Mini revisions (added I2S DAC, ESP32 I2S, rerouted some CLK signals, removed MIDI_RESET, MIDI_CLK, ESP_RESET, ESP_BOOT)
 
 # Clocks
@@ -226,9 +226,11 @@ NET "FLASH_HOLD_N"     LOC="P12"    | IOSTANDARD = LVCMOS33; # CONF_IO3
 # ------------------------------------------------------------------------------------------------------------
 # Timing constraints
 #
-# Clocks (rtl/speccywall.v):
+# Clocks (rtl/quadspeccyx4.v):
 #   PLL 1 on CLK_50MHZ (VCO 925 MHz), phase 0:
-#     pll_clk<0> 84.09 MHz clk_sys: the write strobe and data of the SRAM (rtl/mem/sram_ctrl.v)
+#     pll_clk<0> 84.09 MHz clk_sys: the write strobe and data of the SRAM (rtl/mem/sram_ctrl.v), the SDRAM of the
+#                                   frame buffer (rtl/video/fb_sdram.v: its clock inverted through an ODDR2, the read
+#                                   data taken on the falling clk_sys, as sdram_ctrl of QuadSpeccy)
 #     pll_clk<1> 28.03 MHz clk_bus: the machines, the SRAM address and read, the MCU link, the line buffer writes;
 #                                   clk_sys / 3, every edge of clk_bus is an edge of clk_sys: the paths between them
 #                                   are timed by the PERIOD derived onto both (11.9 ns).
@@ -244,6 +246,11 @@ NET "clk_bus" TNM_NET = "TG_CLK_BUS";
 NET "pclk" TNM_NET = "TG_PCLK";
 TIMESPEC "TS_BUS_TO_PCLK" = FROM "TG_CLK_BUS" TO "TG_PCLK" TIG;
 TIMESPEC "TS_PCLK_TO_BUS" = FROM "TG_PCLK" TO "TG_CLK_BUS" TIG;
+# the frame buffer (rtl/video/fb_sdram.v) on clk_sys: the row buffer is a block RAM of two clocks, the row requests
+# of vga_out a toggle through three registers (the row registers stable by then)
+NET "core/pll_clk<0>" TNM_NET = "TG_CLK_SYS";
+TIMESPEC "TS_SYS_TO_PCLK" = FROM "TG_CLK_SYS" TO "TG_PCLK" TIG;
+TIMESPEC "TS_PCLK_TO_SYS" = FROM "TG_PCLK" TO "TG_CLK_SYS" TIG;
 # MCU link v2 (kg_mcu2): SPI mode 0 from the RP2040 at 16 MHz (up to 32 MHz).
 NET "MCU_SCK" TNM_NET = "TG_CLK_MCU";
 TIMESPEC "TS_CLK_MCU" = PERIOD "TG_CLK_MCU" 32 MHz;

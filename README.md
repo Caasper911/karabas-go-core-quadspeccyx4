@@ -1,11 +1,11 @@
-# SpeccyWall для Karabas Go / Mini / Mini G
+# QuadSpeccyX4 для Karabas Go / Mini / Mini G
 
 Шестнадцать Pentagon 128 на одной ПЛИС (Xilinx Spartan-6 XC6SLX25), все на одном экране сеткой 4×4 и
 выбранный на весь экран. Продолжение идеи [QuadSpeccy](https://github.com/Caasper911/karabas-go-core-quadspeccy)
 (четыре машины), но машина уже не отдельный модуль: один процессор и одна шинная логика обслуживают по очереди
 восемь машин, состояние каждой лежит в своей ячейке памяти (контекст); таких движков два.
 
-**Состояние: 16 машин работают на Karabas Go, Mini, Mini G.** Ядро `src/speccywall.kg` — Go, Mini, Mini G (HDMI),
+**Состояние: 16 машин работают на Karabas Go, Mini, Mini G.** Ядро `src/quadspeccyx4.kg` — Go, Mini, Mini G (HDMI),
 работает на всех трёх. План в [docs/PLAN.md](docs/PLAN.md), устройство в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Как пользоваться
@@ -18,12 +18,18 @@
   точные) и обратно.
 - OSD: Video 1280×800 (по умолчанию) / 720×576 (только полный экран; Menu+V — если монитор не покажет 1280×800),
   джойстики, AY ABC / ACB, Frame colour (цвет рамки выбранной в стене), Frame fade (рамка гаснет через
-  2 с после выбора машины), Tape in (Board — вход ленты платы слышат все машины; Core — все, кроме машины Tape out, слышат её MIC:
+  2 с после выбора машины), Border delay (цвет бордюра позже paper на 0..3 точки, по умолчанию 0: подбор по эффектам бордюра), Tape in (Board — вход ленты платы слышат все машины; Core — все, кроме машины Tape out, слышат её MIC:
   SAVE на ней — LOAD на остальных), Tape out (машина на выходе ленты: Core 1..16), Keys to (клавиатура и
   джойстик выбранной или всем — в стене), NMI (F11), Z80 Reset (F12, выбранная машина), Z80 Reset All (Menu+F12) — сбрасывают
   только процессоры, картинка не прерывается.
 - DivMMC с ESXDOS 0.8.9 у каждой машины (OSD DivMMC On / Off; 128 КБ ОЗУ, у 16-й — 64 КБ: на ней `.browse` не запускается); SD-карта у всех одна —
-  образ (OSD SD image: `.img` / `.mmc` / `.hdf` / `.vhd` / `.bin` из `/zx`), чтение и запись. NMI (F11) — меню ESXDOS.
+  образ (OSD SD image: `.img` / `.mmc` / `.hdf` / `.vhd` / `.bin` из `/zx`), чтение и запись. NMI (F11) — меню ESXDOS; Win+F11 — NMI
+  всем 16 машинам сразу.
+- `.rndsna <папка>` (`software/launcher/RNDSNA` — в `/BIN` образа): запускает случайный `*.SNA` из папки
+  через `.snapload` ESXDOS (48K и 128K). Случайность — от FRAMES и R: машины, запущенные в одном кадре одинаково
+  (Reset All + autoexec), выберут один и тот же файл.
+- `.rndtap <папка>` (`software/launcher/RNDTAP`): то же для `*.TAP`: вставляет ленту (`.tapein`) и выполняет
+  `LOAD ""` в 48 BASIC (из 128 BASIC переключает ПЗУ, если пейджинг не заблокирован).
 
 ## Устройство в двух словах
 
@@ -40,7 +46,7 @@
 - `src/rtl/sd/`: `sd_oct.v` (SD-карты восьми машин движка), `sd_host.v` (16 карт на образ MCU, кэш секторов).
 - `src/rtl/video/`: `wall_fetch.v` (строки стены), `zx_scr.v` (экран выбранной), `vga_out.v` (VGA на пиксельном
   клоке 73,6 МГц).
-- `src/rtl/speccywall.v`, `karabas_go_top.v`: ядро и плата; `src/rtl/hid/`, `src/rtl/sound/`: клавиатура и AY из
+- `src/rtl/quadspeccyx4.v`, `karabas_go_top.v`: ядро и плата; `src/rtl/hid/`, `src/rtl/sound/`: клавиатура и AY из
   QuadSpeccy.
 - `src/Makefile`, `karabas_go.{prj,xst,ucf,ut}`, `core.json`: сборка (`cd src && make go`, нужен
   `../karabas-go-tools` рядом).
@@ -49,6 +55,7 @@
   (каждая точка VGA против памяти; `WALL=1` — стена, `MODE=0` — 720×576), `run_ps.sh` (движок после синтеза XST
   против RTL), `run_sd.sh` (16 машин грузят ESXDOS с образа), `run_core.sh` (всё ядро).
 - `src/test/run_timing.sh [cpu8|wall8]`: пробная сборка на XC6SLX25.
+- `software/launcher/`: dot-команды ESXDOS (`rndsna.asm`, `rndtap.asm`, общая часть `rndsel.inc`; сборка `sjasmplus rndsna.asm` → `RNDSNA`, `sjasmplus rndtap.asm` → `RNDTAP`).
 - `modules/`: общие модули Karabas Go (сабмодуль karabas-go-modules).
 
 ```sh
@@ -57,7 +64,7 @@ src/sim/run_tv80o.sh              # эквивалентность CPU, 2 млн
 src/sim/run_wall.sh               # движки против эталона; ROM=1 ./run_wall.sh 4587520 — 8 кадров ROM 128
 src/sim/run_video.sh              # видео (WALL=1 — стена)
 src/sim/run_ps.sh                 # движок после XST против RTL
-cd src && make go                 # ядро для Go: speccywall.kg
+cd src && make go                 # ядро для Go: quadspeccyx4.kg
 ```
 
 Лицензия: [LICENSE](LICENSE).

@@ -26,9 +26,8 @@
  Ports as Pentagon 128: #FE (A0 = 0: border, MIC, beeper; read: the keyboard of the selected machine sel, or of all with
  keys_all, and the tape input of the machine, tape_in[b]), #7FFD
  (A15 = 0, A1 = 0: page, screen, ROM, lock), AY #FFFD / #BFFD (A15 = 1, A1 = 0: a copy of the 16 registers per
- machine; the writes of the selected machine go out to the one AY, ay_*), Kempston #1F (the selected machine). INT
- of the raster as the CPU of slot 0 sees it (every machine in the same relation to its INT, as raster_delay of
- QuadSpeccy). The data of an I/O read is taken in each bus slot of the cycle (the last one before the CPU takes it
+ machine; the writes of the selected machine go out to the one AY, ay_*), Kempston #1F (the selected machine). INT:
+ int_n is that of the CPU of this slot (zx_vid.v: the raster of each machine is staggered). The data of an I/O read is taken in each bus slot of the cycle (the last one before the CPU takes it
  counts), FF in the acknowledge M1 of an interrupt (IM 2 vectors from the bus: FF, Pentagon).
 
  DivMMC (divmmc_en; as pentagon.v of QuadSpeccy, after divmmc.vhd of divgmx): #E3 (7 CONMEM, 6 MAPRAM, 5..0 the bank
@@ -50,7 +49,7 @@ module zx_oct #(
 	input wire clk,
 	input wire [2:0] slot,               // this clock: cen of CPU slot, bus logic of machine slot - 1
 
-	input wire int_n,                    // the raster INT (zx_timing)
+	input wire int_n,                    // the INT of the CPU of this slot (zx_vid)
 	input wire [7:0] reset,              // machine m: bit m
 	input wire [7:0] nmi,                // NMI while high
 
@@ -91,7 +90,7 @@ module zx_oct #(
 	// per machine
 	output reg [7:0] beeper = 8'd0,
 	output reg [7:0] mic = 8'd0,
-	input wire [2:0] v_m,                // the video reads the border and the screen of machine v_m
+	// the video (zx_vid) of machine slot - 4: its border and screen
 	output wire [2:0] v_border,
 	output wire v_scr7,
 
@@ -153,6 +152,7 @@ initial begin
 	for (i = 0; i < 128; i = i + 1) ay_ram[i] = 8'd0;
 end
 
+wire [2:0] v_m = slot - 3'd4;
 assign v_border = c_border[v_m];
 assign v_scr7 = c_7ffd[v_m][3];
 assign ay_rd = ay_ram[{sel, ay_ra}];
@@ -169,12 +169,8 @@ reg [15:0] lfsr = LFSR_INIT;
 always @(posedge clk)
 	lfsr <= {lfsr[14:0], lfsr[15] ^ lfsr[13] ^ lfsr[12] ^ lfsr[10]};
 
-// INT: the value at slot 0 for every CPU
-reg int_t = 1'b1;
-always @(posedge clk)
-	if (slot == 3'd0)
-		int_t <= int_n;
-wire c_int_n = (slot == 3'd0) ? int_n : int_t;
+// INT of the CPU of this slot
+wire c_int_n = int_n;
 
 wire [7:0] c_dinst = c_src[th] ? c_pdat[th] : c_ramd[th];
 

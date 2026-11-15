@@ -72,18 +72,40 @@ wire [2:0] a_rm;
 wire [7:0] a_rd;
 wire [15:0] q;
 
+// the video of the engines (zx_vid: the staggered rasters and their INT, the screen reads on the video port)
+wire [1:0] f_req, r_v, e_pwe;
+wire [41:0] f_addr;
+wire [7:0] f_tag;
+wire [3:0] r_tag;
+wire [15:0] r_q, e_vlate;
+wire [5:0] e_vbx;
+wire [1:0] e_s7x;
+wire [15:0] e_pd;
+wire [17:0] e_pv, e_pe;
+wire v_req, v_ack, vf_over;
+wire [20:0] v_addr;
+
 genvar ge;
 generate
 	for (ge = 0; ge < 2; ge = ge + 1) begin : g_eng
+		wire it;
+		zx_vid #(.BASE(ge)) vid (
+			.clk(clk_bus), .slot(slot), .hc(hc), .vc(vc), .frame(frame), .int_th(it),
+			.gm(), .g_border(e_vbx[ge*3 +: 3]), .g_scr7(e_s7x[ge]), .f_req(f_req[ge]), .f_addr(f_addr[ge*21 +: 21]),
+			.f_tag(f_tag[ge*4 +: 4]), .r_v(r_v[ge]), .r_tag(r_tag), .r_q(r_q), .w_we(), .w_addr(), .w_data(),
+			.l_done(), .l_m(), .l_lc(), .fs_en(ge == 0), .fs_m(3'd0),
+			.p_we(e_pwe[ge]), .p_addr(), .p_data(e_pd[ge*8 +: 8]), .p_v(e_pv[ge*9 +: 9]), .p_e(e_pe[ge*9 +: 9]),
+			.late(e_vlate[ge*8 +: 8])
+		);
 		zx_oct #(.BASE(ge)) eng (
-			.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset[ge*8 +: 8]), .nmi(8'd0),
+			.clk(clk_bus), .slot(slot), .int_n(it), .reset(reset[ge*8 +: 8]), .nmi(8'd0),
 			.sel_en(ge == 0), .sel(3'd0), .keys(40'd0), .keys_all(1'b0), .tape_in(8'd0), .kempston(8'd0),
 			.m_req(e_req[ge]), .m_we(e_we[ge]), .m_addr(e_addr[ge*22 +: 22]), .m_din(e_din[ge*8 +: 8]),
 			.m_m(e_m[ge*3 +: 3]), .m_rv(a_rv && a_re == ge), .m_rm(a_rm), .m_rd(a_rd),
 			.divmmc_en(1'b0), .dv_clear(1'b0),
 			.sd_en(1'b0), .sd_csize(22'd0), .h_pend(), .h_wr(), .h_m(3'd0), .h_lba(), .h_done(1'b0), .h_we(1'b0), .h_a(9'd0),
 			.h_d(8'd0), .h_q(),
-			.beeper(), .mic(), .v_m(3'd0), .v_border(), .v_scr7(),
+			.beeper(), .mic(), .v_border(e_vbx[ge*3 +: 3]), .v_scr7(e_s7x[ge]),
 			.ay_we(), .ay_wa(), .ay_wd(), .ay_ra(4'd0), .ay_rd(), .late(),
 			.dbg_pc(), .dbg_7ffd(), .dbg_ev()
 		);
@@ -107,6 +129,11 @@ sram_ctrl sram (
 	.v_req(v_req), .v_addr(v_addr), .v_ack(v_ack), .q(q),
 	.MA(MA), .MD(MD), .MRD_N(MRD_N), .MWR_N(MWR_N)
 );
+vid_fetch vf (
+	.clk(clk_bus), .f_req(f_req), .f_addr(f_addr), .f_tag(f_tag),
+	.v_req(v_req), .v_addr(v_addr), .v_ack(v_ack), .q(q),
+	.r_v(r_v), .r_tag(r_tag), .r_q(r_q), .over(vf_over)
+);
 sram_model model (.A(MA), .DQ(MD), .RD_N(MRD_N), .WR_N(MWR_N), .drv(sram.md_oe[0]));
 // the ROM in the SRAM as the loader of the core puts it there: {111111, byte}, word 1F8000
 initial begin
@@ -115,29 +142,23 @@ initial begin
 		model.mem[21'h1F8000 + i] = {rom[2*i+1], rom[2*i]};
 end
 
-// the picture of machine 0 as the full screen shows it (its raster: zx_timing, slot 0), each frame into screen.hex
-wire v_req, v_ack;
-wire [20:0] v_addr;
-wire [3:0] pix;
-zx_scr scr (
-	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .flash(frame[4]),
-	.m(4'd0), .scr7(g_eng[0].eng.v_scr7), .border(g_eng[0].eng.v_border), .diag_en(1'b0), .diag(96'd0),
-	.v_req(v_req), .v_addr(v_addr), .v_ack(v_ack), .q(q), .pix(pix)
-);
-reg [8:0] h1 = 0, h2 = 0, v1 = 0, v2 = 0;
+// the picture of machine 0 as the full screen shows it (zx_vid: two pixels {odd, even} of its line p_v, pixel p_e),
+// each frame into screen.hex
 reg [3:0] fb [0:143359];
 integer fd, fi;
-always @(posedge clk_bus)
+always @(posedge clk_bus) begin
+	if (e_pwe[0]) begin
+		fb[e_pv[8:0] * 448 + e_pe[8:0]] = e_pd[3:0];
+		fb[e_pv[8:0] * 448 + e_pe[8:0] + 1] = e_pd[7:4];
+	end
 	if (ce7) begin
-		{h2, h1} <= {h1, hc};
-		{v2, v1} <= {v1, vc};
-		fb[v2 * 448 + h2] <= pix;
 		if (vc == 9'd0 && hc == 9'd2 && n > 600000) begin
 			fd = $fopen("screen.hex", "w");
 			for (fi = 0; fi < 143360; fi = fi + 1) $fdisplay(fd, "%h", fb[fi]);
 			$fclose(fd);
 		end
 	end
+end
 
 // ---------------------------------------------------------------------------------------------
 // machine 0: the acknowledges, the ports per frame
@@ -199,5 +220,7 @@ always @(posedge clk_bus) begin
 		end
 	end
 end
+
+`include "sram_load.vh"
 
 endmodule
