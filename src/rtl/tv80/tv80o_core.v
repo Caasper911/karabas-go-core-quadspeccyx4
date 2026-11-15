@@ -32,7 +32,7 @@ module tv80o_core (
   m1_n, iorq, no_read, write, rfsh_n, halt_n, busak_n, A, dout, mc,
   ts, intcycle_n, IntE, stop,
   // Inputs
-  reset_n, clk, cen, wait_n, int_n, nmi_n, busrq_n, dinst, di
+  reset_n, clk, cen, wait_n, int_n, nmi_n, busrq_n, dinst, di, rseed
   );
   // Beginning of automatic inputs (from unused autoinst inputs)
   // End of automatics
@@ -78,6 +78,7 @@ module tv80o_core (
   output [15:0] A; 
   input [7:0]   dinst;  
   input [7:0]   di;     
+  input [7:0]   rseed;          // karabas: R after a reset (the Z80 has 0; SpeccyWall gives each machine its own)
   output [7:0]  dout;     
   output [6:0]  mc;     
   output [6:0]  ts;     
@@ -548,7 +549,7 @@ module tv80o_core (
           Ap_n = 8'hFF;
           Fp_n = 8'hFF;
           I_n = 0;
-          R_n = 0;              // karabas: always (was only with TV80_REFRESH)
+          R_n = rseed;          // karabas: always (was only with TV80_REFRESH); rseed, not 0
           SP_n = 16'hFFFF;
           Alternate_n = 1'b0;
 

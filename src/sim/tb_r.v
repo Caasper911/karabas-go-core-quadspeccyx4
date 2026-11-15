@@ -39,7 +39,7 @@ always @(posedge clk)
 	if (ts[2])
 		di_reg <= mem[A];
 tv80_core #(.Mode(0), .IOWait(1)) cpu (
-	.reset_n(reset_n), .clk(clk), .cen(1'b1), .wait_n(1'b1), .int_n(1'b1), .nmi_n(1'b1), .busrq_n(1'b1),
+	.rseed(8'd0), .reset_n(reset_n), .clk(clk), .cen(1'b1), .wait_n(1'b1), .int_n(1'b1), .nmi_n(1'b1), .busrq_n(1'b1),
 	.dinst(mem[A]), .di(di_reg), .m1_n(m1_n), .iorq(iorq), .no_read(no_read), .write(write), .rfsh_n(),
 	.halt_n(halt_n), .busak_n(), .A(A), .dout(dout), .mc(mc), .ts(ts), .intcycle_n(), .IntE(), .stop()
 );

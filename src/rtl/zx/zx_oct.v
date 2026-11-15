@@ -44,7 +44,8 @@
 */
 
 module zx_oct #(
-	parameter [1:0] BASE = 2'd0          // the MB of SRAM of this engine (byte address bits 21..20)
+	parameter [1:0] BASE = 2'd0,         // the MB of SRAM of this engine (byte address bits 21..20)
+	parameter [15:0] LFSR_INIT = BASE[0] ? 16'hACE1 : 16'h1D2B   // the start of the R seed LFSR (not 0)
 ) (
 	input wire clk,
 	input wire [2:0] slot,               // this clock: cen of CPU slot, bus logic of machine slot - 1
@@ -139,12 +140,13 @@ reg [7:0] c_di [0:7];             // DI of the CPU (T80se: the data of T2 kept)
 reg [3:0] c_ayreg [0:7];
 reg c_ayrv [0:7];                 // the register select had 0 in bits 7..4 (else the AY is not addressed)
 reg [3:0] c_ayclr [0:7];          // a reset clears the 16 registers, one per T-state (a reset lasts 16 T or more)
+reg [7:0] c_seed [0:7];           // R of the CPU after its reset (rseed): the LFSR below while the machine is in reset
 reg [7:0] ay_ram [0:127];         // {machine, register}
 initial begin
 	for (i = 0; i < 8; i = i + 1) begin
 		c_7ffd[i] = 6'd0; c_border[i] = 3'd0; c_wrdone[i] = 1'b0; c_rd[i] = 1'b0; c_t2[i] = 1'b0; c_src[i] = 1'b0;
 		c_pdat[i] = 8'hFF; c_iss[i] = 1'b0; c_ret[i] = 1'b0; c_ramd[i] = 8'hFF; c_di[i] = 8'hFF; c_ayreg[i] = 4'd0;
-		c_ayrv[i] = 1'b1; c_ayclr[i] = 4'd0;
+		c_ayrv[i] = 1'b1; c_ayclr[i] = 4'd0; c_seed[i] = 8'd0;
 		c_conmem[i] = 1'b0; c_mapram[i] = 1'b0; c_dvbank[i] = 4'd0; c_automap[i] = 1'b0; c_detect[i] = 1'b0;
 		c_cs_n[i] = 1'b1; c_ebw[i] = 1'b0;
 	end
@@ -158,6 +160,14 @@ assign dbg_7ffd = c_7ffd[sel];
 
 // ---------------------------------------------------------------------------------------------
 // CPU
+
+// R after a reset: not 0 as the Z80, a different pseudo-random value for each machine (the user asked for it,
+// programs take random numbers from R). A 16-bit LFSR runs every clock (another start in each engine); a machine in
+// reset takes it in its bus slot (c_seed), the CPU loads R from it in its reset slots: R is the value of the last
+// clock of the reset, which depends on when the reset ends (the ROM loading of the MCU, a key press)
+reg [15:0] lfsr = LFSR_INIT;
+always @(posedge clk)
+	lfsr <= {lfsr[14:0], lfsr[15] ^ lfsr[13] ^ lfsr[12] ^ lfsr[10]};
 
 // INT: the value at slot 0 for every CPU
 reg int_t = 1'b1;
@@ -184,6 +194,7 @@ tv80o_core #(.Mode(0), .IOWait(1)) core (
 	.nmi_n(~nmi[th]),
 	.busrq_n(1'b1),
 	.dinst(c_dinst),
+	.rseed(c_seed[th]),
 	.di(c_di[th]),
 	.m1_n(), .iorq(), .no_read(), .write(), .rfsh_n(), .halt_n(), .busak_n(), .A(), .dout(), .mc(), .ts(),
 	.intcycle_n(), .IntE(), .stop(),
@@ -300,6 +311,7 @@ reg n_ebw;
 reg [7:0] n_pdat, n_ay_d;
 reg [2:0] n_border;
 reg [3:0] n_ayreg, n_ayclr;
+reg [7:0] n_seed;
 reg [6:0] n_ay_a;
 always @* begin
 	n_7ffd = c_7ffd[b];
@@ -322,6 +334,7 @@ always @* begin
 	n_ayreg = c_ayreg[b];
 	n_ayrv = c_ayrv[b];
 	n_ayclr = c_ayclr[b];
+	n_seed = reset[b] ? lfsr[7:0] ^ lfsr[15:8] : c_seed[b];
 	n_ay_we = 1'b0;
 	n_ay_a = {b, c_ayreg[b]};
 	n_ay_d = p_dout & ay_mask(c_ayreg[b]);
@@ -459,6 +472,7 @@ always @(posedge clk) begin
 	c_ayreg[b] <= n_ayreg;
 	c_ayrv[b] <= n_ayrv;
 	c_ayclr[b] <= n_ayclr;
+	c_seed[b] <= n_seed;
 	if (n_ay_we)
 		ay_ram[n_ay_a] <= n_ay_d;
 	if (n_ay_we && is_sel) begin

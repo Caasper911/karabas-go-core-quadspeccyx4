@@ -114,6 +114,10 @@ milestone 5 (Mini / Mini G) done: works on all three boards (2026-11-15).
   (`tools/sna2sim.py`: the RAM into machine 0, a 48 ROM with a loader of the registers in place of SA-BYTES) on the
   two engines; per frame the acknowledges and the ports. `src/sim/run_r.sh`: the R register of tv80_core against
   the Z80 (tv80 had no R without TV80_REFRESH: LD A,R = 0, fixed 2026-11-15; the tests compare R now).
+- R after a reset is not 0 (user's request 2026-11-15): tv80_core input `rseed` (karabas change, 0 in tb_r / tv80_oct);
+  zx_oct: a 16-bit LFSR every clock (`LFSR_INIT`, another per engine), `c_seed[m]` takes it in the bus slot while
+  machine m is in reset, the CPU loads R = `c_seed[th]` in its reset slots. tb_wall gives the golden CPU what the
+  engine loads in slot g (`g_rseed`); eng1 with the LFSR of eng (lock step).
 - `src/sim/run_sd.sh [frames]`: 16 machines boot ESXDOS from an image (`tools/mkimg.py`, FAT16 of SYS / BIN from
   `../v6z80p/V6_SD_card`, `SDDIR`) through sd_host and a model of the file mounter (`LAT`, `STAGGER`); every byte a
   card gives of a sector against the image; `work_d/screens.png`. ~2 min per frame. The test ROM copy has ESXDOS's

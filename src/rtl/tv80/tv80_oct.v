@@ -57,7 +57,7 @@ wire p_m1_n, p_iorq, p_no_read, p_write, p_intcycle_n, p_halt_n;
 tv80o_core #(.Mode(Mode), .IOWait(IOWait)) core (
 	.th(th),
 	.pth(pth),
-	.reset_n(reset_n[th]),
+	.reset_n(reset_n[th]), .rseed(8'd0),
 	.clk(clk),
 	.cen(cen[th]),
 	.wait_n(wait_n[th]),

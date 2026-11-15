@@ -131,7 +131,7 @@ generate
 		assign q_di[g*8 +: 8] = q_iorq[g] ? (q_A[g*16 +: 8] ^ q_A[g*16 + 8 +: 8]) : mem_q[g * 65536 + q_A[g*16 +: 16]];
 
 		tv80_core #(.Mode(0), .IOWait(1)) ref (
-			.reset_n(rst_n[g]), .clk(clk), .cen(cen[g]), .wait_n(wait_n[g]), .int_n(int_n[g]), .nmi_n(nmi_n[g]),
+			.rseed(8'd0), .reset_n(rst_n[g]), .clk(clk), .cen(cen[g]), .wait_n(wait_n[g]), .int_n(int_n[g]), .nmi_n(nmi_n[g]),
 			.busrq_n(1'b1), .dinst(r_di[g*8 +: 8]), .di(r_di[g*8 +: 8]),
 			.m1_n(r_m1_n[g]), .iorq(r_iorq[g]), .no_read(r_no_read[g]), .write(r_write[g]), .rfsh_n(),
 			.halt_n(r_halt_n[g]), .busak_n(), .A(r_A[g*16 +: 16]), .dout(r_dout[g*8 +: 8]), .mc(r_mc[g*7 +: 7]),

@@ -29,7 +29,7 @@ module tv80_core (/*AUTOARG*/
   m1_n, iorq, no_read, write, rfsh_n, halt_n, busak_n, A, dout, mc,
   ts, intcycle_n, IntE, stop,
   // Inputs
-  reset_n, clk, cen, wait_n, int_n, nmi_n, busrq_n, dinst, di
+  reset_n, clk, cen, wait_n, int_n, nmi_n, busrq_n, dinst, di, rseed
   );
   // Beginning of automatic inputs (from unused autoinst inputs)
   // End of automatics
@@ -62,6 +62,7 @@ module tv80_core (/*AUTOARG*/
   output [15:0] A; 
   input [7:0]   dinst;  
   input [7:0]   di;     
+  input [7:0]   rseed;          // karabas: R after a reset (the Z80 has 0; SpeccyWall gives each machine its own)
   output [7:0]  dout;     
   output [6:0]  mc;     
   output [6:0]  ts;     
@@ -392,7 +393,7 @@ module tv80_core (/*AUTOARG*/
           Ap <= `TV80DELAY 8'hFF;
           Fp <= `TV80DELAY 8'hFF;
           I <= `TV80DELAY 0;
-          R <= `TV80DELAY 0;              // karabas: always (was only with TV80_REFRESH)
+          R <= `TV80DELAY rseed;          // karabas: always (was only with TV80_REFRESH); rseed, not 0
           SP <= `TV80DELAY 16'hFFFF;
           Alternate <= `TV80DELAY 1'b0;
 

@@ -188,7 +188,7 @@ zx_oct #(.BASE(2'd0)) eng (
 	.ay_we(ay_we), .ay_wa(ay_wa), .ay_wd(ay_wd), .ay_ra(4'd0), .ay_rd(), .late(late)
 );
 
-zx_oct #(.BASE(2'd1)) eng1 (
+zx_oct #(.BASE(2'd1), .LFSR_INIT(16'h1D2B)) eng1 (     // (the LFSR of eng: R the same, in lock step)
 	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset), .nmi(nmi),
 	.sel_en(1'b1), .sel(sel), .keys(keys), .keys_all(keys_all), .tape_in(tape_in), .kempston(kempston),
 	.m_req(e1_req), .m_we(e1_we), .m_addr(e1_addr), .m_din(e1_din), .m_m(e_m[5:3]), .m_rv(m_rv & m_re), .m_rm(m_rm), .m_rd(m_rd),
@@ -425,8 +425,15 @@ generate
 		reg [7:0] g_last = 8'hFF;
 		wire g_memrd = m1 ? gintc_n[g] : (~gnoread[g] & ~gwrite[g] & ~giorq[g]);
 
+		// R after a reset (rseed): what the engine loads in slot g (c_seed of machine g then), held between
+		reg [7:0] g_seed_h = 8'd0;
+		always @(posedge clk_bus)
+			if (slot == g)
+				g_seed_h <= eng.c_seed[g];
+		wire [7:0] g_rseed = (slot == g) ? eng.c_seed[g] : g_seed_h;
+
 		tv80_core #(.Mode(0), .IOWait(1)) cpu (
-			.reset_n(g_rst_n[g]), .clk(clk_bus), .cen(cen), .wait_n(1'b1), .int_n(g_int_n), .nmi_n(~nmi[g]),
+			.rseed(g_rseed), .reset_n(g_rst_n[g]), .clk(clk_bus), .cen(cen), .wait_n(1'b1), .int_n(g_int_n), .nmi_n(~nmi[g]),
 			.busrq_n(1'b1), .dinst(dinst), .di(g_di[g]),
 			.m1_n(gm1_n[g]), .iorq(giorq[g]), .no_read(gnoread[g]), .write(gwrite[g]), .rfsh_n(), .halt_n(ghalt_n[g]),
 			.busak_n(), .A(gA[g*16 +: 16]), .dout(gdo[g*8 +: 8]), .mc(gmc[g*7 +: 7]), .ts(gts[g*7 +: 7]),
