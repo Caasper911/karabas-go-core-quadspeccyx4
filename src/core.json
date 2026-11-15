@@ -19,15 +19,15 @@
     ],
     "boards": {
         "go": {
-            "build": "26111502",
+            "build": "26111503",
             "bitstream": "karabas_go.bin"
         },
         "mini": {
-            "build": "26111502",
+            "build": "26111503",
             "bitstream": "karabas_mini.bin"
         },
         "minig": {
-            "build": "26111502",
+            "build": "26111503",
             "bitstream": "karabas_minig.bin"
         }
     },
@@ -98,10 +98,19 @@
                 "Green",
                 "Cyan",
                 "Yellow",
-                "White",
-                "Transparent"
+                "White"
             ],
             "default": 4
+        },
+        {
+            "index": 11,
+            "type": "S",
+            "name": "Frame fade",
+            "options": [
+                "Off",
+                "On"
+            ],
+            "default": 0
         },
         {
             "index": 8,

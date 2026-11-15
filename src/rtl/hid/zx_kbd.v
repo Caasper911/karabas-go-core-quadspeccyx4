@@ -13,6 +13,9 @@
                 no wrap
    Win + `/~    full screen of the selected machine on / off (full_tgl, one clock)
 
+ sel_hit: one clock on every choice of a machine (Win + 1..8, Win + arrow, also at the edge of the grid where sel
+ does not move): the frame fade shows the frame again (QuadSpeccy).
+
  While Win is held no key goes to the machine. The mapping is that of the profi / tsconf
  hid_parser in the Spectrum mode, without its macros:
 
@@ -46,7 +49,8 @@ module zx_kbd #(
 	output reg [39:0] keys = 40'd0,
 	output reg [7:0] kempston = 8'd0,
 	output reg [3:0] sel = 4'd0,
-	output reg full_tgl = 1'b0
+	output reg full_tgl = 1'b0,
+	output reg sel_hit = 1'b0
 );
 
 localparam K_CS = 0,  K_Z = 1,  K_X = 2,  K_C = 3,  K_V = 4;
@@ -226,6 +230,7 @@ wire [39:0] joys = joy_keys(joy_type_l, joy_l) | joy_keys(joy_type_r, joy_r);
 
 always @(posedge clk) begin
 	full_tgl <= 1'b0;
+	sel_hit <= 1'b0;
 	if (reset) begin
 		idx <= 3'd0;
 		acc <= 40'd0;
@@ -247,11 +252,15 @@ always @(posedge clk) begin
 		// hotkeys on the change of the key with Win held
 		hk_num_prev <= hk_num_n;
 		hk_tilde_prev <= hk_tilde_n;
-		if (win && hk_num_n != 4'd0 && hk_num_n != hk_num_prev && hk_num_n <= ROWS * 4)
+		if (win && hk_num_n != 4'd0 && hk_num_n != hk_num_prev && hk_num_n <= ROWS * 4) begin
 			sel <= hk_num_n - 4'd1 + ((shift && ROWS > 2) ? 4'd8 : 4'd0);
+			sel_hit <= 1'b1;
+		end
 		if (win && hk_tilde_n && !hk_tilde_prev)
 			full_tgl <= 1'b1;
 		hk_arr_prev <= hk_arr_n;
+		if (win && hk_arr_n != 3'd0 && hk_arr_n != hk_arr_prev)
+			sel_hit <= 1'b1;
 		if (win && hk_arr_n != 3'd0 && hk_arr_n != hk_arr_prev)
 			case (hk_arr_n[1:0])
 				2'd0: if (sel[1:0] != 2'd3) sel[1:0] <= sel[1:0] + 2'd1;             // right

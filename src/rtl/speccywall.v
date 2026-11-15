@@ -23,10 +23,10 @@
  full screen).
  OSD (core.json "osd", the "index" of the items): 0 joystick L, 1 joystick R, 2 video (0 720 x 576, 1 1280 x 800: the default),
  3 reset of the selected machine (F12), 4 reset of all (Menu+F12), 5 the colour of the frame of the selected cell
- in the wall (0..7 ZX colours, default 4 green; 8 transparent: shown 1 s after a move), 6 NMI of the selected machine (F11), 7 AY mix (0 ABC, 1 ACB), as QuadSpeccy: 8 Tape in (0 Board: every
+ in the wall (0..7 ZX colours, default 4 green), 6 NMI of the selected machine (F11), 7 AY mix (0 ABC, 1 ACB), as QuadSpeccy: 8 Tape in (0 Board: every
  machine hears TAPE_IN; 1 Core: every machine but the Tape out one hears the MIC of that one, it TAPE_IN), 9 Tape out
  (machine n: its MIC on TAPE_OUT; make_core allows 16 options, so no "selected"), 10 Keys to (0 the selected machine, 1 all, in the
- wall only). The diagnostics squares: parameter DIAG.
+ wall only), 11 Frame fade (0 off, 1 the frame hides 2 s after a choice of a machine, as QuadSpeccy). The diagnostics squares: parameter DIAG.
 
  ROM loader: the 32 KB of the shared ROM (128 editor at 0, 48 BASIC at 16384) written straight into the block RAM of
  zx_oct, the machines held in reset meanwhile.
@@ -137,13 +137,13 @@ wire [4:0] osd_px, osd_ph;
 wire [3:0] osd_py;
 wire [5:0] osd_pw;
 
-// the OSD switches: 11 registers of 8 bits, switch n = softsw[n*8 +: 8]; SW_INIT the defaults of core.json
-wire [11*8-1:0] softsw;
+// the OSD switches: 12 registers of 8 bits, switch n = softsw[n*8 +: 8]; SW_INIT the defaults of core.json
+wire [12*8-1:0] softsw;
 
 kg_mcu2 #(
 	.CAPS(16'h0010),             // bit 4: LD_READY (always ready: the ROM is written a byte a clock)
-	.SW_N(11),
-	.SW_INIT(88'h00_00_00_00_00_04_00_00_01_01_00),
+	.SW_N(12),
+	.SW_INIT(96'h00_00_00_00_00_00_04_00_00_01_01_00),
 	.CS_FILTER(3),
 	.ENABLE_OSD(1),
 	.ENABLE_IMG(0),
@@ -206,7 +206,8 @@ wire [2:0] joy_type_r = softsw[10:8];
 wire sw_video = softsw[16];
 wire sw_reset = softsw[24];
 wire sw_reset_all = softsw[32];
-wire [3:0] sw_frame_col = softsw[43:40];
+wire [2:0] sw_frame_col = softsw[42:40];
+wire sw_fade = softsw[88];              // Frame fade: 0 off, 1 on
 wire sw_tape_core = softsw[64];         // Tape in: 0 Board, 1 Core
 wire [3:0] sw_tape_out = softsw[75:72]; // Tape out: the machine
 wire sw_keys_all = softsw[80];          // Keys to: 0 Selected, 1 All (the wall only)
@@ -219,7 +220,7 @@ wire sw_acb = softsw[56];
 wire [39:0] kbd_keys;
 wire [7:0] kbd_kempston;
 wire [3:0] kbd_sel;
-wire kbd_full_tgl;
+wire kbd_full_tgl, kbd_sel_hit;
 
 zx_kbd #(.ROWS(4)) kbd(
 	.clk(clk_bus),
@@ -238,7 +239,8 @@ zx_kbd #(.ROWS(4)) kbd(
 	.keys(kbd_keys),
 	.kempston(kbd_kempston),
 	.sel(kbd_sel),
-	.full_tgl(kbd_full_tgl)
+	.full_tgl(kbd_full_tgl),
+	.sel_hit(kbd_sel_hit)
 );
 
 wire [3:0] sel = kbd_sel;
@@ -507,13 +509,23 @@ wall_fetch #(.ROWS(4)) wall(
 	.wb_we(wb_we), .wb_addr(wb_addr), .wb_data(wb_data), .brd(w_brd)
 );
 
+// the frame fade (QuadSpeccy): the frame of the selected cell is shown 98 frames (2 s) after every choice of a machine
+// (sel_hit: Win + 1..8, Win + arrow, also at the edge), then hidden; always with Frame fade off
+reg [6:0] rim_show = 7'd0;
+always @(posedge clk_bus)
+	if (kbd_sel_hit)
+		rim_show <= 7'd98;
+	else if (rim_show != 7'd0 && ce7 && vc == 9'd0 && hc == 9'd0)
+		rim_show <= rim_show - 1'd1;
+wire rim_on = !sw_fade || rim_show != 7'd0;
+
 wire [7:0] vo_r, vo_g, vo_b;
 wire vo_hs, vo_vs, vo_de, hs_neg, vs_neg;
 
 vga_out #(.ROWS(4)) vga(
 	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .w_ce7(s_ce7), .w_hc(s_hc), .w_vc(s_vc), .pix(pix),
 	.mode_i(sw_video),
-	.wall_i(~show_full), .sel_i(sel), .flash_i(frame[4]), .frame_col(sw_frame_col),
+	.wall_i(~show_full), .sel_i(sel), .flash_i(frame[4]), .frame_col(sw_frame_col), .rim_on(rim_on),
 	.wb_we(wb_we), .wb_addr(wb_addr), .wb_data(wb_data), .brd_i(w_brd),
 	.pclk(pclk),
 	.r(vo_r), .g(vo_g), .b(vo_b), .hs(vo_hs), .vs(vo_vs), .de(vo_de), .hs_neg(hs_neg), .vs_neg(vs_neg)

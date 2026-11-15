@@ -27,7 +27,7 @@
  The wall (mode 1 and wall_i): instead of the full screen a grid of 4 x 4 cells of 320 x 200, the whole 1280 x 800:
  the paper of machine 4 cr + c at 1:1 in the middle (x 32..287, lines 4..195) and its border colour around it; cell
  rows from ROWS on are grey (not built); the outer 2 pixels of the selected cell are in frame_col (bright, ZX
- colour {G, R, B}); frame_col 8 (transparent): only for 49 frames (1 s) after the selection changed. The rows come from wall_fetch.v: a row buffer
+ colour {G, R, B}) while rim_on (the frame fade of the core hides it 2 s after a choice). The rows come from wall_fetch.v: a row buffer
  of 2 x 4 x 16 entries of {attribute word, bitmap word} of a pair of characters (written on clk_bus, read on pclk),
  entry {py[0], c, pair}, and the border colours brd_i[py[0]*12 + c*3 +: 3]; the cell row and the line in the cell
  count with py (py 0 is y 112: cell row 0, line 112).
@@ -52,7 +52,8 @@ module vga_out #(
 	input wire wall_i,                  // the wall (mode 1 only)
 	input wire [3:0] sel_i,             // the selected machine
 	input wire flash_i,                 // frame[4]: the flash of attributes
-	input wire [3:0] frame_col,         // the frame of the selected cell: 0..7 a colour, 8 shown 1 s after a move
+	input wire [2:0] frame_col,         // the frame of the selected cell: a ZX colour {G, R, B}
+	input wire rim_on,                  // the frame is shown (static, clk_bus)
 	input wire wb_we,                   // the row buffer of the wall (wall_fetch.v)
 	input wire [6:0] wb_addr,
 	input wire [31:0] wb_data,
@@ -107,8 +108,9 @@ kg_sdpram #(.DW(4), .AW(11)) linebuf (
 
 reg [2:0] fe_s = 3'd0;
 reg [1:0] mode_s = 2'd0, wall_s = 2'd0, fl_s = 2'd0;
-reg [3:0] sel_s = 4'd0, sel_d = 4'd0, fcol_s = 4'd4;
-reg [5:0] fshow = 6'd0;                        // frames the transparent frame is still shown
+reg [3:0] sel_s = 4'd0;
+reg [2:0] fcol_s = 3'd4;
+reg [1:0] rim_s = 2'b11;
 always @(posedge pclk) begin
 	fe_s <= {fe_s[1:0], fe_t};
 	mode_s <= {mode_s[0], mode_i};
@@ -116,11 +118,7 @@ always @(posedge pclk) begin
 	fl_s <= {fl_s[0], flash_i};
 	sel_s <= sel_i;
 	fcol_s <= frame_col;
-	sel_d <= sel_s;
-	if (sel_s != sel_d)
-		fshow <= 6'd49;
-	else if (fshow != 6'd0 && hx == 12'd0 && py == 10'd0)
-		fshow <= fshow - 1'd1;
+	rim_s <= {rim_s[0], rim_on};
 end
 wire wall = wall_s[1] && mode;
 wire frame_ev = fe_s[2] ^ fe_s[1];
@@ -249,7 +247,7 @@ always @(posedge pclk) begin
 	g_a <= g_in;
 	gb_a <= g_brdx;
 	gabs_a <= gcr >= ROWS;
-	gsel_a <= {gcr[1:0], gcc} == sel_s && g_edge && (!fcol_s[3] || fshow != 6'd0);
+	gsel_a <= {gcr[1:0], gcc} == sel_s && g_edge && rim_s[1];
 	gh_a <= gpx[3];
 	gbit_a <= gpx[2:0];
 	gbc_a <= brd_i[{py[0], gcc} * 3 +: 3];

@@ -126,7 +126,7 @@ wire [7:0] r, g, b;
 wire hs, vs, de, hs_neg, vs_neg;
 vga_out vga (
 	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .w_ce7(ce7), .w_hc(hc), .w_vc(vc), .pix(pix), .mode_i(`MODE != 0),
-	.wall_i(`WALL != 0), .sel_i(4'd`SEL), .flash_i(frame[4]), .frame_col(4'd4),
+	.wall_i(`WALL != 0), .sel_i(4'd`SEL), .flash_i(frame[4]), .frame_col(3'd4), .rim_on(1'b1),
 	.wb_we(wb_we), .wb_addr(wb_addr), .wb_data(wb_data), .brd_i(brd),
 	.pclk(pclk), .r(r), .g(g), .b(b), .hs(hs), .vs(vs), .de(de), .hs_neg(hs_neg), .vs_neg(vs_neg)
 );
