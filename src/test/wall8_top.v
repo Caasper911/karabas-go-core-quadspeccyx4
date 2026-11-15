@@ -83,7 +83,7 @@ wire [7:0] ay_wd;
 
 zx_oct #(.BASE(2'd0)) eng (
 	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset), .nmi(nmi),
-	.sel(sel), .keys(keys), .tape_in(tape_in), .kempston(kempston),
+	.sel_en(1'b1), .sel(sel), .keys(keys), .keys_all(lfsr[58]), .tape_in({8{tape_in}}), .kempston(kempston),
 	.m_req(m_req), .m_we(m_we), .m_addr(m_addr), .m_din(m_din), .m_q(m_q),
 	.rom_we(rom_we), .rom_wa(rom_wa), .rom_wd(rom_wd),
 	.beeper(beeper), .mic(mic), .v_m(v_m), .v_border(v_border), .v_scr7(v_scr7),

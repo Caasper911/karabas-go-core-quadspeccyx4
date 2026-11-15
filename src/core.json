@@ -19,15 +19,15 @@
     ],
     "boards": {
         "go": {
-            "build": "26111501",
+            "build": "26111502",
             "bitstream": "karabas_go.bin"
         },
         "mini": {
-            "build": "26111501",
+            "build": "26111502",
             "bitstream": "karabas_mini.bin"
         },
         "minig": {
-            "build": "26111501",
+            "build": "26111502",
             "bitstream": "karabas_minig.bin"
         }
     },
@@ -102,6 +102,50 @@
                 "Transparent"
             ],
             "default": 4
+        },
+        {
+            "index": 8,
+            "type": "S",
+            "name": "Tape in",
+            "options": [
+                "Board",
+                "Core"
+            ],
+            "default": 0
+        },
+        {
+            "index": 9,
+            "type": "S",
+            "name": "Tape out",
+            "options": [
+                "Core 1",
+                "Core 2",
+                "Core 3",
+                "Core 4",
+                "Core 5",
+                "Core 6",
+                "Core 7",
+                "Core 8",
+                "Core 9",
+                "Core 10",
+                "Core 11",
+                "Core 12",
+                "Core 13",
+                "Core 14",
+                "Core 15",
+                "Core 16"
+            ],
+            "default": 0
+        },
+        {
+            "index": 10,
+            "type": "S",
+            "name": "Keys to",
+            "options": [
+                "Selected",
+                "All"
+            ],
+            "default": 0
         },
         {
             "type": "-"

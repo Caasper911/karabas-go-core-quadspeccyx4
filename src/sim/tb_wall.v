@@ -74,7 +74,8 @@ reg [7:0] nmi = 8'h00;
 reg rnd_int_n = 1'b1;
 reg [2:0] sel = 3'd0;
 reg [39:0] keys = 40'd0;
-reg tape_in = 1'b0;
+reg [7:0] tape_in = 8'd0;        // the tape input of each machine
+reg keys_all = 1'b0;             // the keys and Kempston to every machine
 reg [7:0] kempston = 8'd0;
 reg loading = 1'b1;
 reg frozen = 1'b0;               // the end: no golden writes any more
@@ -135,6 +136,7 @@ always @(posedge clk_bus)
 			keys <= {$random(seed), $random(seed)} & {$random(seed), $random(seed)} & {$random(seed), $random(seed)};
 			tape_in <= $random(seed);
 			kempston <= $random(seed);
+			keys_all <= $random(seed);
 		end
 `endif
 	end
@@ -167,7 +169,7 @@ wire [7:0] late;
 
 zx_oct #(.BASE(2'd0)) eng (
 	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset), .nmi(nmi),
-	.sel_en(1'b1), .sel(sel), .keys(keys), .tape_in(tape_in), .kempston(kempston),
+	.sel_en(1'b1), .sel(sel), .keys(keys), .keys_all(keys_all), .tape_in(tape_in), .kempston(kempston),
 	.m_req(m_req), .m_we(m_we), .m_addr(m_addr), .m_din(m_din), .m_rv(m_rv & ~m_re), .m_rm(m_rm), .m_rd(m_rd),
 	.rom_we(rom_we), .rom_wa(rom_wa), .rom_wd(rom_wd),
 	.beeper(beeper), .mic(mic), .v_m(v_m), .v_border(v_border), .v_scr7(v_scr7),
@@ -176,7 +178,7 @@ zx_oct #(.BASE(2'd0)) eng (
 
 zx_oct #(.BASE(2'd1)) eng1 (
 	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset), .nmi(nmi),
-	.sel_en(1'b1), .sel(sel), .keys(keys), .tape_in(tape_in), .kempston(kempston),
+	.sel_en(1'b1), .sel(sel), .keys(keys), .keys_all(keys_all), .tape_in(tape_in), .kempston(kempston),
 	.m_req(e1_req), .m_we(e1_we), .m_addr(e1_addr), .m_din(e1_din), .m_rv(m_rv & m_re), .m_rm(m_rm), .m_rd(m_rd),
 	.rom_we(rom_we), .rom_wa(rom_wa), .rom_wd(rom_wd),
 	.beeper(), .mic(), .v_m(3'd0), .v_border(), .v_scr7(),
@@ -330,16 +332,16 @@ function [7:0] g_port;
 	input [15:0] a;
 	begin
 		g_kb = 5'b11111;
-		if (m == sel)
+		if (m == sel || keys_all)
 			for (rr = 0; rr < 8; rr = rr + 1)
 				if (!a[8 + rr])
 					g_kb = g_kb & ~keys[rr*5 +: 5];
 		if (!a[0])
-			g_port = {1'b1, (m == sel) & tape_in, 1'b1, g_kb};
+			g_port = {1'b1, tape_in[m], 1'b1, g_kb};
 		else if (a[15] && !a[1] && a[14])
 			g_port = g_ayrv[m] ? g_ay[{m, g_ayreg[m]}] : 8'hFF;
 		else if (a[7:0] == 8'h1F)
-			g_port = (m == sel) ? kempston : 8'h00;
+			g_port = (m == sel || keys_all) ? kempston : 8'h00;
 		else
 			g_port = 8'hFF;
 	end

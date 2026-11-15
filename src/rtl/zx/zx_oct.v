@@ -20,7 +20,8 @@
  the engine (rom_we: the loader), its data 3 clocks after the bus slot (the context romd); fromrom of the machine
  tells which of the two the CPU takes (the last read, also in cycles without a read).
 
- Ports as Pentagon 128: #FE (A0 = 0: border, MIC, beeper; read: keyboard and tape of the selected machine sel), #7FFD
+ Ports as Pentagon 128: #FE (A0 = 0: border, MIC, beeper; read: the keyboard of the selected machine sel, or of all with
+ keys_all, and the tape input of the machine, tape_in[b]), #7FFD
  (A15 = 0, A1 = 0: page, screen, ROM, lock), AY #FFFD / #BFFD (A15 = 1, A1 = 0: a copy of the 16 registers per
  machine; the writes of the selected machine go out to the one AY, ay_*), Kempston #1F (the selected machine). INT
  of the raster as the CPU of slot 0 sees it (every machine in the same relation to its INT, as raster_delay of
@@ -44,7 +45,8 @@ module zx_oct #(
 	input wire sel_en,
 	input wire [2:0] sel,
 	input wire [39:0] keys,              // pressed keys: bit row * 5 + column, row n = A(8+n) low
-	input wire tape_in,
+	input wire keys_all,                 // the keys and Kempston go to every machine (else only to the selected one)
+	input wire [7:0] tape_in,            // the tape input of machine m: bit m (EAR, bit 6 of #FE)
 	input wire [7:0] kempston,
 
 	// SRAM (sram_arb): a request is high for one clock; the byte of a read comes later (m_rv one clock: machine m_rm)
@@ -183,6 +185,7 @@ wire is_rom = (p_A[15:14] == 2'b00);
 wire [2:0] page = (p_A[15:14] == 2'b01) ? 3'd5 : (p_A[15:14] == 2'b10) ? 3'd2 : b7ffd[2:0];
 wire [21:0] ram_addr = {BASE, b, page, p_A[13:0]};
 wire is_sel = sel_en && (b == sel);
+wire has_keys = is_sel || keys_all;    // the keyboard and Kempston
 
 // ports
 wire ay_port = p_A[15] & ~p_A[1];
@@ -190,7 +193,7 @@ reg [4:0] kb_col;
 integer r;
 always @* begin
 	kb_col = 5'b11111;
-	if (is_sel)
+	if (has_keys)
 		for (r = 0; r < 8; r = r + 1)
 			if (!p_A[8 + r])
 				kb_col = kb_col & ~keys[r*5 +: 5];
@@ -199,11 +202,11 @@ wire [7:0] ay_q = ay_ram[{b, c_ayreg[b]}];
 reg [7:0] port_q;
 always @* begin
 	if (!p_A[0])
-		port_q = {1'b1, is_sel & tape_in, 1'b1, kb_col};
+		port_q = {1'b1, tape_in[b], 1'b1, kb_col};
 	else if (ay_port && p_A[14])
 		port_q = c_ayrv[b] ? ay_q : 8'hFF;
 	else if (p_A[7:0] == 8'h1F)
-		port_q = is_sel ? kempston : 8'h00;
+		port_q = has_keys ? kempston : 8'h00;
 	else
 		port_q = 8'hFF;
 end

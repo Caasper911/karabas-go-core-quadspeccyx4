@@ -23,7 +23,10 @@
  full screen).
  OSD (core.json "osd", the "index" of the items): 0 joystick L, 1 joystick R, 2 video (0 720 x 576, 1 1280 x 800: the default),
  3 reset of the selected machine (F12), 4 reset of all (Menu+F12), 5 the colour of the frame of the selected cell
- in the wall (0..7 ZX colours, default 4 green; 8 transparent: shown 1 s after a move), 6 NMI of the selected machine (F11), 7 AY mix (0 ABC, 1 ACB). The diagnostics squares: parameter DIAG.
+ in the wall (0..7 ZX colours, default 4 green; 8 transparent: shown 1 s after a move), 6 NMI of the selected machine (F11), 7 AY mix (0 ABC, 1 ACB), as QuadSpeccy: 8 Tape in (0 Board: every
+ machine hears TAPE_IN; 1 Core: every machine but the Tape out one hears the MIC of that one, it TAPE_IN), 9 Tape out
+ (machine n: its MIC on TAPE_OUT; make_core allows 16 options, so no "selected"), 10 Keys to (0 the selected machine, 1 all, in the
+ wall only). The diagnostics squares: parameter DIAG.
 
  ROM loader: the 32 KB of the shared ROM (128 editor at 0, 48 BASIC at 16384) written straight into the block RAM of
  zx_oct, the machines held in reset meanwhile.
@@ -134,13 +137,13 @@ wire [4:0] osd_px, osd_ph;
 wire [3:0] osd_py;
 wire [5:0] osd_pw;
 
-// the OSD switches: 8 registers of 8 bits, switch n = softsw[n*8 +: 8]; SW_INIT the defaults of core.json
-wire [8*8-1:0] softsw;
+// the OSD switches: 11 registers of 8 bits, switch n = softsw[n*8 +: 8]; SW_INIT the defaults of core.json
+wire [11*8-1:0] softsw;
 
 kg_mcu2 #(
 	.CAPS(16'h0010),             // bit 4: LD_READY (always ready: the ROM is written a byte a clock)
-	.SW_N(8),
-	.SW_INIT(64'h00_00_04_00_00_01_01_00),
+	.SW_N(11),
+	.SW_INIT(88'h00_00_00_00_00_04_00_00_01_01_00),
 	.CS_FILTER(3),
 	.ENABLE_OSD(1),
 	.ENABLE_IMG(0),
@@ -204,6 +207,9 @@ wire sw_video = softsw[16];
 wire sw_reset = softsw[24];
 wire sw_reset_all = softsw[32];
 wire [3:0] sw_frame_col = softsw[43:40];
+wire sw_tape_core = softsw[64];         // Tape in: 0 Board, 1 Core
+wire [3:0] sw_tape_out = softsw[75:72]; // Tape out: the machine
+wire sw_keys_all = softsw[80];          // Keys to: 0 Selected, 1 All (the wall only)
 wire sw_nmi = softsw[48];
 wire sw_acb = softsw[56];
 
@@ -295,6 +301,20 @@ wire [7:0] ay_wd, ay_rd;
 wire [15:0] dbg_pc;
 wire [5:0] dbg_7ffd, dbg_ev;
 
+// the tape: TAPE_IN through two registers; Tape in = Board: every machine hears it; = Core: every machine but the Tape
+// out one hears the MIC of that one (a SAVE there is a LOAD in the others), the Tape out one TAPE_IN (QuadSpeccy)
+reg [1:0] tape_s = 2'b00;
+always @(posedge clk_bus)
+	tape_s <= {tape_s[0], tape_in};
+wire [3:0] tape_core = sw_tape_out;
+wire [15:0] m_tape_in;
+genvar gt;
+generate
+	for (gt = 0; gt < 16; gt = gt + 1) begin : g_tape
+		assign m_tape_in[gt] = (sw_tape_core && tape_core != gt) ? m_mic[tape_core] : tape_s[1];
+	end
+endgenerate
+
 // the two engines: machines 0..7 (BASE 0: the first MB of the SRAM) and 8..15 (BASE 1)
 wire [1:0] e_req, e_we, e_scr7, e_ayw;
 wire [43:0] e_addr;
@@ -314,7 +334,8 @@ generate
 		zx_oct #(.BASE(ge)) eng (
 			.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(m_reset[ge*8 +: 8]),
 			.nmi((sw_nmi && sel[3] == ge) ? (8'd1 << sm) : 8'd0),
-			.sel_en(sel[3] == ge), .sel(sm), .keys(kbd_keys), .tape_in(tape_in), .kempston(kbd_kempston),
+			.sel_en(sel[3] == ge), .sel(sm), .keys(kbd_keys), .keys_all(sw_keys_all & ~show_full),
+			.tape_in(m_tape_in[ge*8 +: 8]), .kempston(kbd_kempston),
 			.m_req(e_req[ge]), .m_we(e_we[ge]), .m_addr(e_addr[ge*22 +: 22]), .m_din(e_din[ge*8 +: 8]),
 			.m_rv(a_rv && a_re == ge), .m_rm(a_rm), .m_rd(a_rd),
 			.rom_we(rom_we), .rom_wa(ld_addr_mcu[14:0]), .rom_wd(ld_data_mcu),
@@ -554,13 +575,13 @@ ay_psg ay(
 // the tape input 0x400 (QuadSpeccy)
 wire [9:0] ay_l = {1'b0, ch_a, 1'b0} + (sw_acb ? ch_c : ch_b);
 wire [9:0] ay_r = sw_acb ? {1'b0, ch_b, 1'b0} + ch_c : {1'b0, ch_c, 1'b0} + ch_b;
-wire [15:0] beeps = {2'b00, m_beeper[sel], 1'b0, m_mic[sel], tape_in, 10'd0};
+wire [15:0] beeps = {2'b00, m_beeper[sel], 1'b0, m_mic[sel], m_tape_in[sel], 10'd0};
 always @(posedge clk_bus) begin
 	audio_l <= beeps + {2'b00, ay_l, 4'd0};
 	audio_r <= beeps + {2'b00, ay_r, 4'd0};
 end
 
 assign beeper = m_beeper[sel];
-assign tape_out = m_mic[sel];
+assign tape_out = m_mic[tape_core];
 
 endmodule

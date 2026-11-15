@@ -87,7 +87,7 @@ generate
 	for (ge = 0; ge < 2; ge = ge + 1) begin : g_eng
 		zx_oct #(.BASE(ge)) eng (
 			.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset[ge*8 +: 8]), .nmi(8'd0),
-			.sel_en(ge == 0), .sel(3'd0), .keys(40'd0), .tape_in(1'b0), .kempston(8'd0),
+			.sel_en(ge == 0), .sel(3'd0), .keys(40'd0), .keys_all(1'b0), .tape_in(8'd0), .kempston(8'd0),
 			.m_req(e_req[ge]), .m_we(e_we[ge]), .m_addr(e_addr[ge*22 +: 22]), .m_din(e_din[ge*8 +: 8]),
 			.m_rv(a_rv && a_re == ge), .m_rm(a_rm), .m_rd(a_rd),
 			.rom_we(rom_we), .rom_wa(rom_wa), .rom_wd(rom_wd),

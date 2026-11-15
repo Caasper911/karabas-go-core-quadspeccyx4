@@ -100,7 +100,7 @@ wire [11:0] e_7ffd, e_ev;
 
 zx_oct rtl (
 	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset), .nmi(8'd0),
-	.sel_en(1'b1), .sel(sel), .keys(40'd0), .tape_in(1'b0), .kempston(8'd0),
+	.sel_en(1'b1), .sel(sel), .keys(40'd0), .keys_all(1'b0), .tape_in(8'd0), .kempston(8'd0),
 	.m_req(e_req[0]), .m_we(e_we[0]), .m_addr(e_addr[21:0]), .m_din(e_din[7:0]),
 	.m_rv(e_rv[0]), .m_rm(e_rm[2:0]), .m_rd(e_rd[7:0]),
 	.rom_we(rom_we), .rom_wa(rom_wa), .rom_wd(rom_wd),
@@ -111,7 +111,7 @@ zx_oct rtl (
 
 zx_oct_ps syn (
 	.clk(clk_bus), .slot(slot), .int_n(int_n), .reset(reset), .nmi(8'd0),
-	.sel_en(1'b1), .sel(sel), .keys(40'd0), .tape_in(1'b0), .kempston(8'd0),
+	.sel_en(1'b1), .sel(sel), .keys(40'd0), .keys_all(1'b0), .tape_in(8'd0), .kempston(8'd0),
 	.m_req(e_req[1]), .m_we(e_we[1]), .m_addr(e_addr[43:22]), .m_din(e_din[15:8]),
 	.m_rv(e_rv[1]), .m_rm(e_rm[5:3]), .m_rd(e_rd[15:8]),
 	.rom_we(rom_we), .rom_wa(rom_wa), .rom_wd(rom_wd),
