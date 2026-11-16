@@ -21,7 +21,7 @@
  pclk). A row has 1568 pclk (1790 clk_sys); it takes 4 x 87 clocks, before the writes (a write waits at most a row).
 
  The frames of machine g (no tearing): w[g] the one being written, c[g] the last complete one, d[g] the one shown
- (taken from c[g] when the first line of its cell row is read). When line 199 of w is written, c = w and w the third
+ (taken from c[g] when the first line shown of its cell row is read: rq_f, line 0, without the border 4). When line 199 of w is written, c = w and w the third
  one (not c, not d).
 
  Refresh: every 512 clocks one more is owed (8192 in 64 ms needs one in 7.8 us = 656 clocks); between the lines.
@@ -47,6 +47,7 @@ module fb_sdram #(
 	input wire [1:0] rq_cr,
 	input wire [7:0] rq_lc,
 	input wire rq_half,
+	input wire rq_f,                     // the first line shown of the cell row
 	input wire [9:0] rb_addr,
 	output wire [15:0] rb_q,
 
@@ -102,6 +103,7 @@ reg rq_pend = 1'b0;
 reg [1:0] rp_cr = 2'd0;
 reg [7:0] rp_lc = 8'd0;
 reg rp_half = 1'b0;
+reg rp_f = 1'b0;
 
 // ---------------------------------------------------------------------------------------------
 // the row buffer: written on clk, read on pclk
@@ -214,6 +216,7 @@ always @(posedge clk) begin
 		rp_cr <= rq_cr;
 		rp_lc <= rq_lc;
 		rp_half <= rq_half;
+		rp_f <= rq_f;
 	end
 
 	if (!ready) begin
@@ -250,7 +253,7 @@ always @(posedge clk) begin
 					jh <= rp_half;
 					st <= S_LINE;
 					// the first line of a cell row: its machines show their last complete frame from now on
-					if (rp_lc == 8'd0)
+					if (rp_f)
 						fd[{rp_cr, 3'b000} +: 8] <= fc[{rp_cr, 3'b000} +: 8];
 				end else if (lq_ne) begin
 					lq_rp <= lq_rp + 1'd1;

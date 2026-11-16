@@ -115,7 +115,9 @@ milestone 5 (Mini / Mini G) done: works on all three boards (2026-11-15).
   as busy as 16 machines make it, `BUSY=0` random), fb_sdram + `sdram_model.v` (QuadSpeccy's, checks the SDRAM
   timing) + vga_out 1280 x 800; the border of each machine a function of its raster position and (`CFT=1`) its cell
   frame: every pixel of the wall against the memory / the function, a cell from one frame of its machine (no
-  tearing); `WALL=0` the full screen of machine `FS`; late screen words, queue overflows, the longest wait of a
+  tearing); `NB=1` the wall without the border (OSD Wall border, Menu+B: the papers one field of 1024 x 768, black
+  around; the frame shown of each cell row must change every VGA frame, so 6 frames); `WALL=0` the full screen of
+  machine `FS`; late screen words, queue overflows, the longest wait of a
   screen word (21 clocks). About 1.6 min per frame.
 - `src/sim/run_int.sh [frames]` (`SHORT=1`): the frame interrupt of the 16 machines: position (17988 T before the
   paper), 32 T, period, acknowledges per frame. `src/sim/run_sna.sh <file.sna> [frames]`: a 48K or 128K snapshot (the picture of each frame in work_s/screen.png)

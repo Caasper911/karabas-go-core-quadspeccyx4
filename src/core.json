@@ -23,15 +23,15 @@
     ],
     "boards": {
         "go": {
-            "build": "26111601",
+            "build": "26111604",
             "bitstream": "karabas_go.bin"
         },
         "mini": {
-            "build": "26111601",
+            "build": "26111604",
             "bitstream": "karabas_mini.bin"
         },
         "minig": {
-            "build": "26111601",
+            "build": "26111604",
             "bitstream": "karabas_minig.bin"
         }
     },
@@ -48,45 +48,46 @@
             "hotkey": "Menu+V"
         },
         {
-            "type": "-"
-        },
-        {
-            "index": 0,
+            "index": 10,
             "type": "S",
-            "name": "Joystick L",
+            "name": "Keys to",
             "options": [
-                "Kempston",
-                "Sinclair1",
-                "Sinclair2",
-                "Cursor",
-                "QAOPM",
-                "QAOPS"
+                "Selected",
+                "All"
             ],
-            "default": 0,
-            "hotkey": "Menu+J"
+            "default": 0
         },
         {
-            "index": 1,
+            "index": 12,
             "type": "S",
-            "name": "Joystick R",
+            "name": "DivMMC",
             "options": [
-                "Kempston",
-                "Sinclair1",
-                "Sinclair2",
-                "Cursor",
-                "QAOPM",
-                "QAOPS"
+                "Off",
+                "On"
             ],
-            "default": 1,
-            "hotkey": "Menu+R"
+            "default": 1
         },
         {
-            "index": 7,
+            "type": "F",
+            "key": "sdimg",
+            "name": "SD image",
+            "slot": 0,
+            "exts": [
+                "img",
+                "mmc",
+                "hdf",
+                "vhd",
+                "bin"
+            ],
+            "dir": "/zx"
+        },
+        {
+            "index": 11,
             "type": "S",
-            "name": "AY mix",
+            "name": "Frame fade",
             "options": [
-                "ABC",
-                "ACB"
+                "Off",
+                "On"
             ],
             "default": 0
         },
@@ -107,12 +108,26 @@
             "default": 4
         },
         {
-            "index": 11,
+            "index": 14,
             "type": "S",
-            "name": "Frame fade",
+            "name": "Wall border",
             "options": [
-                "Off",
-                "On"
+                "Show",
+                "Hide"
+            ],
+            "default": 0,
+            "hotkey": "Menu+B"
+        },
+        {
+            "type": "-"
+        },
+        {
+            "index": 7,
+            "type": "S",
+            "name": "AY mix",
+            "options": [
+                "ABC",
+                "ACB"
             ],
             "default": 0
         },
@@ -151,41 +166,43 @@
             "default": 0
         },
         {
-            "index": 10,
+            "index": 0,
             "type": "S",
-            "name": "Keys to",
+            "name": "Joystick L",
             "options": [
-                "Selected",
-                "All"
+                "Kempston",
+                "Sinclair1",
+                "Sinclair2",
+                "Cursor",
+                "QAOPM",
+                "QAOPS"
             ],
-            "default": 0
+            "default": 0,
+            "hotkey": "Menu+J"
         },
         {
-            "index": 12,
+            "index": 1,
             "type": "S",
-            "name": "DivMMC",
+            "name": "Joystick R",
             "options": [
-                "Off",
-                "On"
+                "Kempston",
+                "Sinclair1",
+                "Sinclair2",
+                "Cursor",
+                "QAOPM",
+                "QAOPS"
             ],
-            "default": 1
-        },
-        {
-            "type": "F",
-            "key": "sdimg",
-            "name": "SD image",
-            "slot": 0,
-            "exts": [
-                "img",
-                "mmc",
-                "hdf",
-                "vhd",
-                "bin"
-            ],
-            "dir": "/zx"
+            "default": 1,
+            "hotkey": "Menu+R"
         },
         {
             "type": "-"
+        },
+        {
+            "index": 13,
+            "type": "T",
+            "name": "NMI All",
+            "hotkey": "Menu+F11"
         },
         {
             "index": 6,

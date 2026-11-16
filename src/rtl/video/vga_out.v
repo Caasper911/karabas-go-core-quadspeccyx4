@@ -33,6 +33,10 @@
  4 pixels, bits 15..12 the leftmost); cell rows from ROWS on are grey (not built); the outer 2 pixels of the
  selected cell are in frame_col (bright, ZX colour {G, R, B}) while rim_on (the frame fade of the core hides it 2 s
  after a choice). py 0 is y 112: cell row 0, line 112.
+ Without the border (nb_i, taken at the frame lock): the papers only, side by side, one field of 1024 x 768 in the
+ middle (x 128..1151, y 16..783; black around): a cell is 256 x 192 (cell x 32..287, line 4..195 of the row
+ buffer), the frame of the selected one on the outer 2 pixels of its paper; rq_f marks the first line shown of a
+ cell row (line 0, without the border 4: fb_sdram takes the frame to show there).
 
  Out: rgb, hs / vs / de high active (the OSD overlay takes them so), hs_neg / vs_neg the polarity of the pins; 2 clocks
  of latency after the counters.
@@ -54,6 +58,7 @@ module vga_out #(
 	input wire [3:0] sel_i,             // the selected machine
 	input wire [2:0] frame_col,         // the frame of the selected cell: a ZX colour {G, R, B}
 	input wire rim_on,                  // the frame is shown (static, clk_bus)
+	input wire nb_i,                    // the wall without the border (static)
 
 	// pclk side
 	input wire pclk,
@@ -62,6 +67,7 @@ module vga_out #(
 	output reg [1:0] rq_cr = 2'd0,
 	output reg [7:0] rq_lc = 8'd0,
 	output reg rq_half = 1'b0,
+	output reg rq_f = 1'b0,
 	output reg [9:0] rb_addr = 10'd0,
 	input wire [15:0] rb_q,
 
@@ -107,6 +113,8 @@ reg [1:0] mode_s = 2'd0, wall_s = 2'd0;
 reg [3:0] sel_s = 4'd0;
 reg [2:0] fcol_s = 3'd4;
 reg [1:0] rim_s = 2'b11;
+reg [1:0] nb_s = 2'b00;
+reg nb = 1'b0;                                 // the wall without the border: nb_s at the frame lock
 always @(posedge pclk) begin
 	fe_s <= {fe_s[1:0], fe_t};
 	mode_s <= {mode_s[0], mode_i};
@@ -114,6 +122,7 @@ always @(posedge pclk) begin
 	sel_s <= sel_i;
 	fcol_s <= frame_col;
 	rim_s <= {rim_s[0], rim_on};
+	nb_s <= {nb_s[0], nb_i};
 end
 wire wall = wall_s[1] && mode;
 wire frame_ev = fe_s[2] ^ fe_s[1];
@@ -155,18 +164,13 @@ always @(posedge pclk) begin
 		sub <= 2'd0;
 		gy <= 10'd112;
 		gcr <= 3'd0;
-		glc <= 8'd112;
+		glc <= nb_s[1] ? 8'd100 : 8'd112;
+		nb <= nb_s[1];
 	end else if (hx == H - 1'd1) begin
 		hx <= 12'd0;
 		gy <= (gy == 10'd959) ? 10'd0 : gy + 1'd1;
-		if (gy == 10'd959) begin
-			gcr <= 3'd0;
-			glc <= 8'd0;
-		end else if (glc == 8'd199) begin
-			glc <= 8'd0;
-			gcr <= gcr + 1'd1;
-		end else
-			glc <= glc + 1'd1;
+		gcr <= gcr_n;
+		glc <= glc_n;
 		if (sub == LPL - 1'd1) begin
 			sub <= 2'd0;
 			sl <= (sl == 9'd319) ? 9'd0 : sl + 1'd1;
@@ -191,12 +195,13 @@ always @(posedge pclk) begin
 	lb_hi <= sx_hc[0];
 	lb_hi_d <= lb_hi;
 
+	// (without the border the row starts at cell x 416 = -96: x 128 is cell x 32 of column 0)
 	if (hx == H - 1'd1) begin
 		gcc <= 2'd0;
-		gcx <= 9'd0;
-	end else if (gcx == 9'd319) begin
+		gcx <= nb ? 9'd416 : 9'd0;
+	end else if (gcx == (nb ? 9'd287 : 9'd319)) begin
 		gcc <= gcc + 1'd1;
-		gcx <= 9'd0;
+		gcx <= nb ? 9'd32 : 9'd0;
 	end else
 		gcx <= gcx + 1'd1;
 	rb_addr <= {gy[0], gcc, gcx[8:2]};
@@ -205,16 +210,9 @@ always @(posedge pclk) begin
 	if (hx == 12'd0) begin
 		rq_t <= ~rq_t;
 		rq_half <= ~gy[0];
-		if (gy == 10'd959) begin
-			rq_cr <= 2'd0;
-			rq_lc <= 8'd0;
-		end else if (glc == 8'd199) begin
-			rq_cr <= gcr[1:0] + 1'd1;
-			rq_lc <= 8'd0;
-		end else begin
-			rq_cr <= gcr[1:0];
-			rq_lc <= glc + 1'd1;
-		end
+		rq_cr <= gcr_n[1:0];
+		rq_lc <= glc_n;
+		rq_f <= glc_n == glc_first;
 	end
 end
 
@@ -224,13 +222,23 @@ wire vis_y = mode ? (py >= 10'd848 || py < 10'd688) : (py >= 10'd544 || py < 10'
 wire hs_x = mode ? (hx >= 12'd1344 && hx < 12'd1472) : (hx >= 12'd1974 && hx < 12'd2142);
 wire vs_y = mode ? (py >= 10'd691 && py < 10'd697) : (py >= 10'd484 && py < 10'd488);
 wire g_in = wall && hx < 12'd1280 && gy < 10'd800;
-wire g_edge = gcx < 9'd2 || gcx >= 9'd318 || glc < 8'd2 || glc >= 8'd198;
+// without the border: the field of the papers (outside it black)
+wire g_fld = !nb || (hx >= 12'd128 && hx < 12'd1152 && gy >= 10'd16 && gy < 10'd784);
+wire g_edge = nb ? (gcx < 9'd34 || gcx >= 9'd286 || glc < 8'd6 || glc >= 8'd194) :
+                   (gcx < 9'd2 || gcx >= 9'd318 || glc < 8'd2 || glc >= 8'd198);
+// the cell row and line of the next VGA row (without the border the lines 4..195 of a cell; y 0 is line 244 = -12,
+// so y 16 is line 4 of row 0)
+wire [7:0] glc_last = nb ? 8'd195 : 8'd199;
+wire [7:0] glc_first = nb ? 8'd4 : 8'd0;
+wire [2:0] gcr_n = (gy == 10'd959) ? 3'd0 : (glc == glc_last) ? gcr + 1'd1 : gcr;
+wire [7:0] glc_n = (gy == 10'd959) ? (nb ? 8'd244 : 8'd0) : (glc == glc_last) ? glc_first : glc + 1'd1;
 
 // stage a (the addresses of the buffers are out), stage b (their words)
 reg vis_a = 1'b0, hs_a = 1'b0, vs_a = 1'b0;
 reg vis_b = 1'b0, hs_b = 1'b0, vs_b = 1'b0;
 reg g_a = 1'b0, gabs_a = 1'b0, gsel_a = 1'b0;   // the wall: in a cell, absent, the frame of the selected one
 reg g_b = 1'b0, gabs_b = 1'b0, gsel_b = 1'b0;
+reg gfld_a = 1'b1, gfld_b = 1'b1;               // in the field of the papers (always with the border)
 reg [1:0] gn_a = 2'd0, gn_b = 2'd0;             // the pixel in the word
 wire [3:0] g_pix = (gn_b == 2'd0) ? rb_q[15:12] : (gn_b == 2'd1) ? rb_q[11:8] : (gn_b == 2'd2) ? rb_q[7:4] : rb_q[3:0];
 
@@ -244,6 +252,8 @@ always @(posedge pclk) begin
 	gsel_a <= {gcr[1:0], gcc} == sel_s && g_edge && rim_s[1];
 	gn_a <= gcx[1:0];
 	{g_b, gabs_b, gsel_b, gn_b} <= {g_a, gabs_a, gsel_a, gn_a};
+	gfld_a <= g_fld;
+	gfld_b <= gfld_a;
 
 	hs <= hs_b;
 	vs <= vs_b;
@@ -253,7 +263,9 @@ always @(posedge pclk) begin
 	if (!vis_b) begin
 		r <= 8'd0; g <= 8'd0; b <= 8'd0;
 	end else if (g_b) begin
-		if (gabs_b) begin
+		if (!gfld_b) begin
+			r <= 8'd0; g <= 8'd0; b <= 8'd0;
+		end else if (gabs_b) begin
 			r <= 8'h30; g <= 8'h30; b <= 8'h30;
 		end else if (gsel_b) begin
 			r <= fcol_s[1] ? 8'hFF : 8'd0;

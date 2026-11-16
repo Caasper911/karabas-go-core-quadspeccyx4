@@ -11,6 +11,9 @@
           (the position written again here) and, with CFT=1, of its cell frame (counted when its raster passes line
           315, pixel 416, where line 0 of a cell starts): all pixels of a cell in one VGA frame must come from one
           frame of the machine (no tearing).
+   NB=1   the wall without the border: the papers side by side, one field of 1024 x 768 at x 128, y 16, black
+          around; the border is not seen, so the frame shown of each cell row (fb_sdram fd) must change every VGA
+          frame (the frame is taken at the first line shown, line 4 then).
    WALL=0 the full screen of machine FS (scale 3), the left border from the line before.
  Also the SDRAM model checks its timing, vid_fetch and zx_vid say when a word was late or a queue overflowed.
  Prints "tb_video: <n> errors".
@@ -30,6 +33,9 @@
 `endif
 `ifndef CFT
 `define CFT 1
+`endif
+`ifndef NB
+`define NB 0
 `endif
 
 module tb_video;
@@ -180,7 +186,7 @@ sram_ctrl sram (
 );
 sram_model model (.A(MA), .DQ(MD), .RD_N(MRD_N), .WR_N(MWR_N), .drv(sram.md_oe[0]));
 
-wire rq_t, rq_half, fb_ready, over_l;
+wire rq_t, rq_half, rq_f, fb_ready, over_l;
 wire [1:0] rq_cr;
 wire [7:0] rq_lc;
 wire [9:0] rb_addr;
@@ -193,7 +199,7 @@ wire [15:0] SDR_DQ;
 fb_sdram #(.INIT_WAIT(16'd200)) fb (
 	.clk(clk_sys), .clk_bus(clk_bus), .pclk(pclk),
 	.w_we(w_we), .w_addr(w_addr), .w_data(w_data), .l_done(l_done), .l_m(l_m), .l_lc(l_lc),
-	.rq_t(rq_t), .rq_cr(rq_cr), .rq_lc(rq_lc), .rq_half(rq_half), .rb_addr(rb_addr), .rb_q(rb_q),
+	.rq_t(rq_t), .rq_cr(rq_cr), .rq_lc(rq_lc), .rq_half(rq_half), .rq_f(rq_f), .rb_addr(rb_addr), .rb_q(rb_q),
 	.ready(fb_ready), .over(over_l),
 	.SDR_CLK(SDR_CLK), .SDR_BA(SDR_BA), .SDR_A(SDR_A), .SDR_DQM(SDR_DQM), .SDR_RAS_N(SDR_RAS_N),
 	.SDR_CAS_N(SDR_CAS_N), .SDR_WE_N(SDR_WE_N), .SDR_DQ(SDR_DQ)
@@ -208,8 +214,8 @@ wire hs, vs, de, hs_neg, vs_neg;
 vga_out vga (
 	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc),
 	.lb_we(|p_we), .lb_wa(p_we[1] ? p_addr[19:10] : p_addr[9:0]), .lb_wd(p_we[1] ? p_data[15:8] : p_data[7:0]),
-	.mode_i(1'b1), .wall_i(`WALL != 0), .sel_i(4'd0), .frame_col(3'd4), .rim_on(1'b0),
-	.pclk(pclk), .rq_t(rq_t), .rq_cr(rq_cr), .rq_lc(rq_lc), .rq_half(rq_half), .rb_addr(rb_addr), .rb_q(rb_q),
+	.mode_i(1'b1), .wall_i(`WALL != 0), .sel_i(4'd0), .frame_col(3'd4), .rim_on(1'b0), .nb_i(`NB != 0),
+	.pclk(pclk), .rq_t(rq_t), .rq_cr(rq_cr), .rq_lc(rq_lc), .rq_half(rq_half), .rq_f(rq_f), .rb_addr(rb_addr), .rb_q(rb_q),
 	.r(r), .g(g), .b(b), .hs(hs), .vs(vs), .de(de), .hs_neg(hs_neg), .vs_neg(vs_neg)
 );
 
@@ -276,6 +282,9 @@ reg [3:0] pg;
 reg [8:0] pv, pe, sl, hh;
 integer cr, cc, lc, cx, sx, py, k;
 reg is_brd;
+reg [2:0] fsb;                      // the border expected full screen (3 bits: it wraps as the machine's)
+reg [31:0] fd_prev = 32'd0;         // the frames shown (fb_sdram fd) at the start of the VGA frame before
+integer fr;
 
 task bad;
 	input [8*48-1:0] what;
@@ -294,6 +303,13 @@ always @(posedge pclk) begin
 	if (vs && !vs_d) begin
 		frames = frames + 1;
 		y = 0;
+		if (`WALL != 0 && frames >= 5)
+			for (fr = 0; fr < 4; fr = fr + 1)
+				if (fb.fd[fr*8 +: 8] == fd_prev[fr*8 +: 8]) begin
+					errors = errors + 1;
+					$display("frame %0d: cell row %0d shows the frames of the VGA frame before", frames - 1, fr);
+				end
+		fd_prev = fb.fd;
 		if (`WALL != 0 && frames >= 4)
 			$display("frame %0d: the cells show the frames %0d %0d %0d %0d / %0d %0d %0d %0d / %0d %0d %0d %0d / %0d %0d %0d %0d of their machines (mod 8), now at %0d",
 				frames - 1, cell_cf[0], cell_cf[1], cell_cf[2], cell_cf[3], cell_cf[4], cell_cf[5], cell_cf[6], cell_cf[7],
@@ -310,8 +326,15 @@ always @(posedge pclk) begin
 	if (de) begin
 		if (frames >= 3) begin
 			checked = checked + 1;
-			if (`WALL != 0) begin
-				cr = y / 200; lc = y % 200; cc = x / 320; cx = x % 320;
+			if (`WALL != 0 && `NB != 0 && (x < 128 || x >= 1152 || y < 16 || y >= 784)) begin
+				ex = 24'd0;
+				if ({r, g, b} !== ex) bad("outside the field");
+			end else if (`WALL != 0) begin
+				if (`NB != 0) begin
+					cr = (y - 16) / 192; lc = 4 + (y - 16) % 192; cc = (x - 128) / 256; cx = 32 + (x - 128) % 256;
+				end else begin
+					cr = y / 200; lc = y % 200; cc = x / 320; cx = x % 320;
+				end
 				pg = 4 * cr + cc;
 				pv = (lc < 4) ? 316 + lc : lc - 4;
 				if (cx < 32) begin
@@ -346,8 +369,10 @@ always @(posedge pclk) begin
 					ex = 24'd0;
 				else if (pv < 192 && hh < 256)
 					ex = rgb(paper_pix(`FS, pv, hh));
-				else
-					ex = rgb({1'b0, hash(`FS, pv, {hh[8:1], 1'b0}) + ((`CFT != 0) ? cf[`FS] : 0)});
+				else begin
+					fsb = hash(`FS, pv, {hh[8:1], 1'b0}) + ((`CFT != 0) ? cf[`FS] : 0);
+					ex = rgb({1'b0, fsb});
+				end
 				// (the cell frame changes at line 315: around it the line buffer has the frame before)
 				if ({r, g, b} !== ex && !((`CFT != 0) && pv >= 300))
 					bad("full screen");

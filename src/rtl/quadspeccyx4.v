@@ -28,7 +28,9 @@
  in the wall (0..7 ZX colours, default 4 green), 6 NMI of the selected machine (F11), 7 AY mix (0 ABC, 1 ACB), as QuadSpeccy: 8 Tape in (0 Board: every
  machine hears TAPE_IN; 1 Core: every machine but the Tape out one hears the MIC of that one, it TAPE_IN), 9 Tape out
  (machine n: its MIC on TAPE_OUT; make_core allows 16 options, so no "selected"), 10 Keys to (0 the selected machine, 1 all, in the
- wall only), 11 Frame fade (0 off, 1 the frame hides 2 s after a choice of a machine, as QuadSpeccy), 12 DivMMC.
+ wall only), 11 Frame fade (0 off, 1 the frame hides 2 s after a choice of a machine, as QuadSpeccy), 12 DivMMC, 13 NMI of all
+ machines (Menu+F11: the item is before NMI in core.json, the firmware takes the first item that matches), 14 Wall
+ border (Menu+B; 0 shown, 1 hidden: the papers side by side, one field of 1024 x 768, vga_out nb_i).
  The diagnostics squares: parameter DIAG.
 
  ROM loader: the 32 KB of the shared ROM (128 editor at 0, 48 BASIC at 16384) written straight into the block RAM of
@@ -149,8 +151,8 @@ wire [4:0] osd_px, osd_ph;
 wire [3:0] osd_py;
 wire [5:0] osd_pw;
 
-// the OSD switches: 13 registers of 8 bits, switch n = softsw[n*8 +: 8]; SW_INIT the defaults of core.json
-wire [13*8-1:0] softsw;
+// the OSD switches: 15 registers of 8 bits, switch n = softsw[n*8 +: 8]; SW_INIT the defaults of core.json
+wire [15*8-1:0] softsw;
 
 // the file mounter, slot 0: the image of the SD cards of all machines (sd_host, below)
 wire [7:0] sdc_img_mounted;
@@ -162,8 +164,8 @@ wire [7:0] sdc_byte_in, sdc_byte_out;
 
 kg_mcu2 #(
 	.CAPS(16'h0010),             // bit 4: LD_READY (always ready: the ROM is written a byte a clock)
-	.SW_N(13),
-	.SW_INIT(104'h01_00_00_00_00_00_00_04_00_00_01_01_00),
+	.SW_N(15),
+	.SW_INIT(120'h00_00_01_00_00_00_00_00_00_04_00_00_01_01_00),
 	.CS_FILTER(3),
 	.ENABLE_OSD(1),
 	.ENABLE_IMG(1),                 // slot 0: the image of the SD cards (sd_host)
@@ -229,11 +231,13 @@ wire sw_reset = softsw[24];
 wire sw_reset_all = softsw[32];
 wire [2:0] sw_frame_col = softsw[42:40];
 wire sw_fade = softsw[88];              // Frame fade: 0 off, 1 on
+wire sw_noborder = softsw[112];         // Wall border: 0 shown, 1 hidden (the papers one field of 1024 x 768)
 wire sw_divmmc = softsw[96];            // DivMMC: 0 off, 1 on (all machines)
 wire sw_tape_core = softsw[64];         // Tape in: 0 Board, 1 Core
 wire [3:0] sw_tape_out = softsw[75:72]; // Tape out: the machine
 wire sw_keys_all = softsw[80];          // Keys to: 0 Selected, 1 All (the wall only)
 wire sw_nmi = softsw[48];
+wire sw_nmi_all = softsw[104];         // NMI All (Menu+F11): all machines, as Win+F11 of zx_kbd
 wire sw_acb = softsw[56];
 
 // ---------------------------------------------------------------------------------------------
@@ -415,7 +419,7 @@ generate
 
 		zx_oct #(.BASE(ge)) eng (
 			.clk(clk_bus), .slot(slot), .int_n(e_int[ge]), .reset(m_reset[ge*8 +: 8]),
-			.nmi(((sw_nmi && sel[3] == ge) ? (8'd1 << sm) : 8'd0) | {8{kbd_nmi_all}}),
+			.nmi(((sw_nmi && sel[3] == ge) ? (8'd1 << sm) : 8'd0) | {8{kbd_nmi_all | sw_nmi_all}}),
 			.sel_en(sel[3] == ge), .sel(sm), .keys(kbd_keys), .keys_all(sw_keys_all & ~show_full),
 			.tape_in(m_tape_in[ge*8 +: 8]), .kempston(kbd_kempston),
 			.m_req(e_req[ge]), .m_we(e_we[ge]), .m_addr(e_addr[ge*22 +: 22]), .m_din(e_din[ge*8 +: 8]),
@@ -573,7 +577,7 @@ wire [3:0] dg_px = diag[{dg_row, ~p_e[7:4]}] ? 4'b1100 : 4'b1010;
 wire [7:0] lb_wd = dg_on ? {dg_px, dg_px} : p_data;
 
 // the frame buffer of the wall
-wire rq_t, rq_half, fb_ready, fb_over;
+wire rq_t, rq_half, rq_f, fb_ready, fb_over;
 wire [1:0] rq_cr;
 wire [7:0] rq_lc;
 wire [9:0] rb_addr;
@@ -581,7 +585,7 @@ wire [15:0] rb_q;
 fb_sdram fb(
 	.clk(clk_sys), .clk_bus(clk_bus), .pclk(pclk),
 	.w_we(fw_we), .w_addr(fw_addr), .w_data(fw_data), .l_done(fl_done), .l_m(fl_m), .l_lc(fl_lc),
-	.rq_t(rq_t), .rq_cr(rq_cr), .rq_lc(rq_lc), .rq_half(rq_half), .rb_addr(rb_addr), .rb_q(rb_q),
+	.rq_t(rq_t), .rq_cr(rq_cr), .rq_lc(rq_lc), .rq_half(rq_half), .rq_f(rq_f), .rb_addr(rb_addr), .rb_q(rb_q),
 	.ready(fb_ready), .over(fb_over),
 	.SDR_CLK(SDR_CLK), .SDR_BA(SDR_BA), .SDR_A(SDR_A), .SDR_DQM(SDR_DQM), .SDR_RAS_N(SDR_RAS_N),
 	.SDR_CAS_N(SDR_CAS_N), .SDR_WE_N(SDR_WE_N), .SDR_DQ(SDR_DQ)
@@ -603,9 +607,9 @@ wire vo_hs, vo_vs, vo_de, hs_neg, vs_neg;
 vga_out #(.ROWS(4)) vga(
 	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc), .lb_we(p_we), .lb_wa(p_addr), .lb_wd(lb_wd),
 	.mode_i(sw_video),
-	.wall_i(~show_full), .sel_i(sel), .frame_col(sw_frame_col), .rim_on(rim_on),
+	.wall_i(~show_full), .sel_i(sel), .frame_col(sw_frame_col), .rim_on(rim_on), .nb_i(sw_noborder),
 	.pclk(pclk),
-	.rq_t(rq_t), .rq_cr(rq_cr), .rq_lc(rq_lc), .rq_half(rq_half), .rb_addr(rb_addr), .rb_q(rb_q),
+	.rq_t(rq_t), .rq_cr(rq_cr), .rq_lc(rq_lc), .rq_half(rq_half), .rq_f(rq_f), .rb_addr(rb_addr), .rb_q(rb_q),
 	.r(vo_r), .g(vo_g), .b(vo_b), .hs(vo_hs), .vs(vo_vs), .de(vo_de), .hs_neg(hs_neg), .vs_neg(vs_neg)
 );
 
