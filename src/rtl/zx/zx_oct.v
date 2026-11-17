@@ -26,7 +26,8 @@
  Ports as Pentagon 128: #FE (A0 = 0: border, MIC, beeper; read: the keyboard of the selected machine sel, or of all with
  keys_all, and the tape input of the machine, tape_in[b]), #7FFD
  (A15 = 0, A1 = 0: page, screen, ROM, lock), AY #FFFD / #BFFD (A15 = 1, A1 = 0: a copy of the 16 registers per
- machine; the writes of the selected machine go out to the one AY, ay_*), Kempston #1F (the selected machine). INT:
+ machine; the writes of the selected machine go out to the one AY, ay_*), Kempston #1F (the selected machine), #5A73
+ (read only, all 16 address bits: the number of the machine 0..15, as {BASE[0], m}; elsewhere FF). INT:
  int_n is that of the CPU of this slot (zx_vid.v: the raster of each machine is staggered). The data of an I/O read is taken in each bus slot of the cycle (the last one before the CPU takes it
  counts), FF in the acknowledge M1 of an interrupt (IM 2 vectors from the bus: FF, Pentagon).
 
@@ -282,6 +283,8 @@ always @* begin
 		port_q = c_ayrv[b] ? ay_q : 8'hFF;
 	else if (p_A[7:0] == 8'h1F)
 		port_q = has_keys ? kempston : 8'h00;
+	else if (p_A == 16'h5A73)
+		port_q = {4'd0, BASE[0], b};         // the machine number 0..15 (read only)
 	else if (dv_port)
 		port_q = sd_q;
 	else

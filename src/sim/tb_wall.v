@@ -266,6 +266,41 @@ function [7:0] rnd_byte;
 	end
 endfunction
 
+`ifdef IDPORT
+// the machine number port in both engines (eng1 is not compared with golden machines)
+integer id_rd0 = 0, id_rd1 = 0;
+always @(posedge clk_bus) begin
+	if (eng.io_rd && eng.p_A == 16'h5A73) begin
+		id_rd0 = id_rd0 + 1;
+		if (eng.port_q !== {5'd0, eng.b}) begin
+			errors = errors + 1;
+			$display("%t engine 0 machine %0d: #5A73 %h", $time, eng.b, eng.port_q);
+		end
+	end
+	if (eng1.io_rd && eng1.p_A == 16'h5A73) begin
+		id_rd1 = id_rd1 + 1;
+		if (eng1.port_q !== {5'd1, eng1.b}) begin
+			errors = errors + 1;
+			$display("%t engine 1 machine %0d: #5A73 %h", $time, eng1.b, eng1.port_q);
+		end
+	end
+end
+
+task id_seq;
+	input integer a;
+	input integer rom;
+	reg [7:0] s [0:6];
+	integer j;
+	begin
+		if (a[5]) begin s[0] = 8'h01; s[1] = 8'h73; s[2] = 8'h5A; s[3] = 8'hED; s[4] = 8'h78; end
+		else begin s[0] = 8'h00; s[1] = 8'h3E; s[2] = 8'h5A; s[3] = 8'hDB; s[4] = 8'h73; end
+		s[5] = 8'hD3; s[6] = 8'hFE;
+		for (j = 0; j < 7; j = j + 1)
+			if (rom) g_rom[a + j] = s[j]; else g_ram[a + j] = s[j];
+	end
+endtask
+`endif
+
 initial begin
 	for (k = 0; k < 8; k = k + 1) begin rst_cnt[k] = 20; nmi_cnt[k] = 0; end
 `ifdef MODE_ROM
@@ -288,6 +323,11 @@ initial begin
 		g_rom[i] = rnd_byte($random(seed));
 	for (i = 0; i < 8 * 131072; i = i + 1)
 		g_ram[i] = rnd_byte($random(seed));
+`ifdef IDPORT
+	// the machine number port: every 32 bytes LD BC,#5A73 : IN A,(C) : OUT (#FE),A or LD A,#5A : IN A,(#73) : OUT (#FE),A
+	for (i = 0; i < 32768; i = i + 32) id_seq(i, 1);
+	for (i = 0; i < 8 * 131072; i = i + 32) id_seq(i, 0);
+`endif
 `endif
 	for (i = 0; i < 8192; i = i + 1)
 		g_esx[i] = rnd_byte($random(seed));
@@ -390,6 +430,8 @@ function [7:0] g_port;
 			g_port = g_ayrv[m] ? g_ay[{m, g_ayreg[m]}] : 8'hFF;
 		else if (a[7:0] == 8'h1F)
 			g_port = (m == sel || keys_all) ? kempston : 8'h00;
+		else if (a == 16'h5A73)
+			g_port = {5'd0, m};            // the machine number (eng, BASE 0)
 		else
 			g_port = 8'hFF;                // also #EB of the DivMMC: no card
 	end
@@ -761,6 +803,9 @@ task finish;
 			ie_t[4], ie_t[5], ie_t[6], ie_t[7]);
 		$display("tb_wall: interrupts %0d %0d %0d %0d %0d %0d %0d %0d, video reads %0d, SRAM model errors %0d (X accesses %0d), memory / port errors %0d",
 			ints[0], ints[1], ints[2], ints[3], ints[4], ints[5], ints[6], ints[7], vreads, model.errors, model.xs, mem_err);
+`ifdef IDPORT
+		$display("tb_wall: machine number port: %0d bus slots read it (engine 0), %0d (engine 1)", id_rd0, id_rd1);
+`endif
 		$display("tb_wall: %0d errors", errors);
 		$finish;
 	end

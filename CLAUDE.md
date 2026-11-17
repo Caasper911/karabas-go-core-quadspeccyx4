@@ -76,7 +76,7 @@ milestone 5 (Mini / Mini G) done: works on all three boards (2026-11-15).
   request a clock at most, so no queue and no WAIT: a read at the start of T1 returns 3 clocks later (`c_mdat`), the
   CPU takes it 15 clocks after the request; the shared ROM (block RAM, 32 KB, loader port) is delayed to the same
   latency. RAM of machine m at SRAM byte {BASE, m, page, offset}. Ports #FE, #7FFD, AY copy (#FFFD / #BFFD, writes of
-  the selected machine out), Kempston #1F; INT = its value at slot 0 for all CPUs; a reset must last 16 T (AY clear).
+  the selected machine out), Kempston #1F, #5A73 (read only, all 16 bits: the machine number 0..15; 2026-11-17); INT = its value at slot 0 for all CPUs; a reset must last 16 T (AY clear).
 - `src/rtl/mem/sram_ctrl.v`: the SRAM (2M x 16, 10 ns, MRD_N / MWR_N per byte), one access per clk_bus: MA / MRD_N
   in clk_bus IOB registers for the whole clock, the read word taken at the next clk_bus edge (35.7 ns, as TS-Conf);
   a write: MWR_N low from the 1st to the 2nd clk_sys edge of the clock, data from the 1st to the 3rd (clk_sys
@@ -106,7 +106,8 @@ milestone 5 (Mini / Mini G) done: works on all three boards (2026-11-15).
   tDW / tDH and bus fight checks; X accesses of uninitialized CPU registers counted apart) against eight golden
   machines (`tv80_core` + a behavioural bus written again in `tb_wall.v`, writes at the start of T2 as the engine);
   all CPU outputs every T-state, at the end the 128 KB of each machine, border, beeper, MIC, #7FFD, AY registers;
-  `late` never; a random video reader checked. Random code by default (2 M clocks ~ 4 min); `ROM=1` the ROM 128
+  `late` never; a random video reader checked. `FUSE_DEFS="-d IDPORT"`: the random code reads the machine number
+  port #5A73 every 32 bytes (both engines checked). Random code by default (2 M clocks ~ 4 min); `ROM=1` the ROM 128
   (~45 s per frame of 573440 clocks; machines out of reset 1000 T apart; `work_w/screens.png` via
   `tools/render_wall.py`); `SEED`, `FUSE_DEFS="-d WATCH=22'h<addr>"` traces the writes of one byte.
 - `src/test/run_timing.sh wall8` (out of date: `wall8_top.v` has the ports of milestone 4, before sram_arb): `zx_oct` + `sram_ctrl` on the SRAM pins of the Go (`wall8.ucf` with the SRAM
