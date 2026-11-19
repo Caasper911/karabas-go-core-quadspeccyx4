@@ -4,9 +4,15 @@
 /*
  vga_out.v
 
- The picture of one machine full screen, or the wall, on the pixel clock pclk = 21/8 clk_bus (73.6 MHz), locked to
- the Pentagon frame: 573440 clocks of clk_bus = 1505280 of pclk. Two rasters (mode, static: taken through two
- registers and applied by the next frame lock):
+ The picture of one machine full screen, or the wall, on the pixel clock pclk = 21/8 clk_bus (73.6 MHz). Three rasters
+ (mode, static: taken through two registers; modes 0 and 1 applied by the next frame lock):
+
+   mode 2  1280 x 800 at 60 Hz, NOT locked to the Pentagon frame: total 1488 x 824 (60.01 Hz, 49.45 kHz: the line and
+           frame rates of CVT-RB 1280x800@60, 1440 x 823 at 71 MHz, by which a monitor knows the mode); hsync 32
+           (front 48, back 128) high, vsync 6 lines (front 3, back 15) low, as CVT-RB. The wall as in mode 1, the full
+           screen from the frame buffer too: the cell of the selected machine (320 x 200) at scale 4. The frame buffer
+           keeps it free of tearing; a frame of a machine is shown once or twice (48.88 in 60).
+   (modes 0 and 1 locked to the Pentagon frame: 573440 clocks of clk_bus = 1505280 of pclk)
 
    mode 1  1280 x 800, total 1568 x 960 (48.88 Hz, 3 VGA lines per Spectrum line); the picture at scale 3 fills it:
            426 x 266 Spectrum pixels, the paper at x 255..1022, the border of the line around it (64 Spectrum pixels
@@ -53,8 +59,8 @@ module vga_out #(
 	input wire lb_we,                   // the machine shown full screen: two pixels
 	input wire [9:0] lb_wa,
 	input wire [7:0] lb_wd,
-	input wire mode_i,                  // 1: 1280 x 800
-	input wire wall_i,                  // the wall (mode 1 only)
+	input wire [1:0] mode_i,            // 0: 720 x 576, 1: 1280 x 800 (48.88 Hz), 2 (3): 1280 x 800 at 60 Hz
+	input wire wall_i,                  // the wall (modes 1, 2)
 	input wire [3:0] sel_i,             // the selected machine
 	input wire [2:0] frame_col,         // the frame of the selected cell: a ZX colour {G, R, B}
 	input wire rim_on,                  // the frame is shown (static, clk_bus)
@@ -109,7 +115,7 @@ wire [3:0] lb_px = lb_hi_d ? lb_q[7:4] : lb_q[3:0];
 // pclk: the raster
 
 reg [2:0] fe_s = 3'd0;
-reg [1:0] mode_s = 2'd0, wall_s = 2'd0;
+reg [1:0] mode_s0 = 2'd0, mode_s = 2'd0, wall_s = 2'd0;
 reg [3:0] sel_s = 4'd0;
 reg [2:0] fcol_s = 3'd4;
 reg [1:0] rim_s = 2'b11;
@@ -117,18 +123,21 @@ reg [1:0] nb_s = 2'b00;
 reg nb = 1'b0;                                 // the wall without the border: nb_s at the frame lock
 always @(posedge pclk) begin
 	fe_s <= {fe_s[1:0], fe_t};
-	mode_s <= {mode_s[0], mode_i};
+	mode_s0 <= mode_i;
+	mode_s <= mode_s0;
 	wall_s <= {wall_s[0], wall_i};
 	sel_s <= sel_i;
 	fcol_s <= frame_col;
 	rim_s <= {rim_s[0], rim_on};
 	nb_s <= {nb_s[0], nb_i};
 end
+wire m60 = mode_s[1];                          // 1280 x 800 at 60 Hz, free running
+wire mode = mode_s != 2'd0;                    // 1280 x 800
 wire wall = wall_s[1] && mode;
-wire frame_ev = fe_s[2] ^ fe_s[1];
-wire mode = mode_s[1];
+wire frame_ev = (fe_s[2] ^ fe_s[1]) && !m60;
+wire [9:0] GY_LAST = m60 ? 10'd823 : 10'd959;  // the last VGA row of the frame
 
-wire [11:0] H = mode ? 12'd1568 : 12'd2352;
+wire [11:0] H = m60 ? 12'd1488 : mode ? 12'd1568 : 12'd2352;
 wire [1:0] LPL = mode ? 2'd3 : 2'd2;          // VGA lines per Spectrum line
 wire [8:0] LB = mode ? 9'd85 : 9'd56;         // Spectrum pixels left of the paper (mode 1: 64 of them real)
 wire [4:0] NUM = mode ? 5'd1 : 5'd4;          // a Spectrum pixel is DEN / NUM pclk
@@ -168,7 +177,9 @@ always @(posedge pclk) begin
 		nb <= nb_s[1];
 	end else if (hx == H - 1'd1) begin
 		hx <= 12'd0;
-		gy <= (gy == 10'd959) ? 10'd0 : gy + 1'd1;
+		gy <= gy_wrap ? 10'd0 : gy + 1'd1;
+		if (m60 && gy_wrap)
+			nb <= nb_s[1];
 		gcr <= gcr_n;
 		glc <= glc_n;
 		if (sub == LPL - 1'd1) begin
@@ -204,24 +215,28 @@ always @(posedge pclk) begin
 		gcx <= nb ? 9'd32 : 9'd0;
 	end else
 		gcx <= gcx + 1'd1;
-	rb_addr <= {gy[0], gcc, gcx[8:2]};
+	// (the full screen of mode 2: the cell of the selected machine at scale 4)
+	rb_addr <= fs60 ? {gy[0], sel_s[1:0], hx[10:4]} : {gy[0], gcc, gcx[8:2]};
 
 	// at the start of a row the next one into the other half of the row buffer
 	if (hx == 12'd0) begin
 		rq_t <= ~rq_t;
 		rq_half <= ~gy[0];
-		rq_cr <= gcr_n[1:0];
-		rq_lc <= glc_n;
-		rq_f <= glc_n == glc_first;
+		rq_cr <= fs60 ? sel_s[3:2] : gcr_n[1:0];
+		rq_lc <= fs60 ? gy_n[9:2] : glc_n;
+		rq_f <= fs60 ? gy_n == 10'd0 : glc_n == glc_first;
 	end
 end
 
 // the windows of this clock (hx, py): visible, picture, syncs, frame
 wire vis_x = mode ? (hx < 12'd1280) : (hx < 12'd1932);
-wire vis_y = mode ? (py >= 10'd848 || py < 10'd688) : (py >= 10'd544 || py < 10'd480);
-wire hs_x = mode ? (hx >= 12'd1344 && hx < 12'd1472) : (hx >= 12'd1974 && hx < 12'd2142);
-wire vs_y = mode ? (py >= 10'd691 && py < 10'd697) : (py >= 10'd484 && py < 10'd488);
-wire g_in = wall && hx < 12'd1280 && gy < 10'd800;
+wire vis_y = m60 ? (gy < 10'd800) : mode ? (py >= 10'd848 || py < 10'd688) : (py >= 10'd544 || py < 10'd480);
+wire hs_x = m60 ? (hx >= 12'd1328 && hx < 12'd1360) :
+            mode ? (hx >= 12'd1344 && hx < 12'd1472) : (hx >= 12'd1974 && hx < 12'd2142);
+wire vs_y = m60 ? (gy >= 10'd803 && gy < 10'd809) :
+            mode ? (py >= 10'd691 && py < 10'd697) : (py >= 10'd484 && py < 10'd488);
+wire fs60 = m60 && !wall_s[1];                 // the full screen of mode 2 (from the frame buffer)
+wire g_in = (wall || fs60) && hx < 12'd1280 && gy < 10'd800;
 // without the border: the field of the papers (outside it black)
 wire g_fld = !nb || (hx >= 12'd128 && hx < 12'd1152 && gy >= 10'd16 && gy < 10'd784);
 wire g_edge = nb ? (gcx < 9'd34 || gcx >= 9'd286 || glc < 8'd6 || glc >= 8'd194) :
@@ -230,8 +245,11 @@ wire g_edge = nb ? (gcx < 9'd34 || gcx >= 9'd286 || glc < 8'd6 || glc >= 8'd194)
 // so y 16 is line 4 of row 0)
 wire [7:0] glc_last = nb ? 8'd195 : 8'd199;
 wire [7:0] glc_first = nb ? 8'd4 : 8'd0;
-wire [2:0] gcr_n = (gy == 10'd959) ? 3'd0 : (glc == glc_last) ? gcr + 1'd1 : gcr;
-wire [7:0] glc_n = (gy == 10'd959) ? (nb ? 8'd244 : 8'd0) : (glc == glc_last) ? glc_first : glc + 1'd1;
+// (>=: after a change of mode gy may be past the last row)
+wire gy_wrap = gy >= GY_LAST;
+wire [9:0] gy_n = gy_wrap ? 10'd0 : gy + 1'd1;
+wire [2:0] gcr_n = gy_wrap ? 3'd0 : (glc == glc_last) ? gcr + 1'd1 : gcr;
+wire [7:0] glc_n = gy_wrap ? (nb ? 8'd244 : 8'd0) : (glc == glc_last) ? glc_first : glc + 1'd1;
 
 // stage a (the addresses of the buffers are out), stage b (their words)
 reg vis_a = 1'b0, hs_a = 1'b0, vs_a = 1'b0;
@@ -248,18 +266,18 @@ always @(posedge pclk) begin
 	vs_a <= vs_y;
 	{vis_b, hs_b, vs_b} <= {vis_a, hs_a, vs_a};
 	g_a <= g_in;
-	gabs_a <= gcr >= ROWS;
-	gsel_a <= {gcr[1:0], gcc} == sel_s && g_edge && rim_s[1];
-	gn_a <= gcx[1:0];
+	gabs_a <= fs60 ? 1'b0 : gcr >= ROWS;
+	gsel_a <= !fs60 && {gcr[1:0], gcc} == sel_s && g_edge && rim_s[1];
+	gn_a <= fs60 ? hx[3:2] : gcx[1:0];
 	{g_b, gabs_b, gsel_b, gn_b} <= {g_a, gabs_a, gsel_a, gn_a};
-	gfld_a <= g_fld;
+	gfld_a <= g_fld || fs60;
 	gfld_b <= gfld_a;
 
 	hs <= hs_b;
 	vs <= vs_b;
 	de <= vis_b;
-	hs_neg <= 1'b1;
-	vs_neg <= ~mode;
+	hs_neg <= ~m60;
+	vs_neg <= ~mode | m60;
 	if (!vis_b) begin
 		r <= 8'd0; g <= 8'd0; b <= 8'd0;
 	end else if (g_b) begin

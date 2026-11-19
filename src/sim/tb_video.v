@@ -15,6 +15,9 @@
           around; the border is not seen, so the frame shown of each cell row (fb_sdram fd) must change every VGA
           frame (the frame is taken at the first line shown, line 4 then).
    WALL=0 the full screen of machine FS (scale 3), the left border from the line before.
+   MODE=2 1280 x 800 at 60 Hz (vga_out mode 2, not locked to the machines): the wall as above (but the frame shown
+          of a cell row changes in most VGA frames only), the full screen (WALL=0) the cell of FS at scale 4, from
+          one frame of the machine (CFT); the raster 1488 x 824 checked.
  Also the SDRAM model checks its timing, vid_fetch and zx_vid say when a word was late or a queue overflowed.
  Prints "tb_video: <n> errors".
 */
@@ -36,6 +39,9 @@
 `endif
 `ifndef NB
 `define NB 0
+`endif
+`ifndef MODE
+`define MODE 1
 `endif
 
 module tb_video;
@@ -214,7 +220,7 @@ wire hs, vs, de, hs_neg, vs_neg;
 vga_out vga (
 	.clk(clk_bus), .ce7(ce7), .hc(hc), .vc(vc),
 	.lb_we(|p_we), .lb_wa(p_we[1] ? p_addr[19:10] : p_addr[9:0]), .lb_wd(p_we[1] ? p_data[15:8] : p_data[7:0]),
-	.mode_i(1'b1), .wall_i(`WALL != 0), .sel_i(4'd0), .frame_col(3'd4), .rim_on(1'b0), .nb_i(`NB != 0),
+	.mode_i(`MODE), .wall_i(`WALL != 0), .sel_i(`FS), .frame_col(3'd4), .rim_on(1'b0), .nb_i(`NB != 0),
 	.pclk(pclk), .rq_t(rq_t), .rq_cr(rq_cr), .rq_lc(rq_lc), .rq_half(rq_half), .rq_f(rq_f), .rb_addr(rb_addr), .rb_q(rb_q),
 	.r(r), .g(g), .b(b), .hs(hs), .vs(vs), .de(de), .hs_neg(hs_neg), .vs_neg(vs_neg)
 );
@@ -284,7 +290,8 @@ integer cr, cc, lc, cx, sx, py, k;
 reg is_brd;
 reg [2:0] fsb;                      // the border expected full screen (3 bits: it wraps as the machine's)
 reg [31:0] fd_prev = 32'd0;         // the frames shown (fb_sdram fd) at the start of the VGA frame before
-integer fr;
+integer fr, fd_same = 0;
+integer hcnt = 0, hlen = 0, vrows = 0;  // the raster: clocks of a line (hs to hs), lines of a frame
 
 task bad;
 	input [8*48-1:0] what;
@@ -297,17 +304,38 @@ task bad;
 	end
 endtask
 
+reg hs_d = 1'b0;
 always @(posedge pclk) begin
 	de_d <= de;
 	vs_d <= vs;
+	hs_d <= hs;
+	hcnt = hcnt + 1;
+	if (hs && !hs_d) begin
+		if (frames >= 3 && hcnt != ((`MODE == 2) ? 1488 : 1568)) begin
+			errors = errors + 1;
+			$display("frame %0d: a line of %0d clocks", frames, hcnt);
+		end
+		hcnt = 0;
+		vrows = vrows + 1;
+	end
 	if (vs && !vs_d) begin
+		if (frames >= 3 && vrows != ((`MODE == 2) ? 824 : 960)) begin
+			errors = errors + 1;
+			$display("frame %0d: %0d lines", frames, vrows);
+		end
+		vrows = 0;
 		frames = frames + 1;
 		y = 0;
+		// (60 Hz: a frame of a machine is shown once or twice: count the VGA frames that show the frames before)
 		if (`WALL != 0 && frames >= 5)
 			for (fr = 0; fr < 4; fr = fr + 1)
 				if (fb.fd[fr*8 +: 8] == fd_prev[fr*8 +: 8]) begin
-					errors = errors + 1;
-					$display("frame %0d: cell row %0d shows the frames of the VGA frame before", frames - 1, fr);
+					if (`MODE == 2)
+						fd_same = fd_same + 1;
+					else begin
+						errors = errors + 1;
+						$display("frame %0d: cell row %0d shows the frames of the VGA frame before", frames - 1, fr);
+					end
 				end
 		fd_prev = fb.fd;
 		if (`WALL != 0 && frames >= 4)
@@ -316,8 +344,8 @@ always @(posedge pclk) begin
 				cell_cf[8], cell_cf[9], cell_cf[10], cell_cf[11], cell_cf[12], cell_cf[13], cell_cf[14], cell_cf[15], cf[0]);
 		for (k = 0; k < 16; k = k + 1) cell_cf[k] = -1;
 		if (frames == `FRAMES + 3) begin
-			$display("tb_video: wall %0d, %0d frames, %0d pixels checked; late %h %h, overflow %b %b, SDRAM model errors %0d, a screen word waited at most %0d clocks",
-				`WALL, `FRAMES, checked, late1, late0, over_f, over_l, sdram.errors, rq_max);
+			$display("tb_video: mode %0d, wall %0d, %0d frames, %0d pixels checked; late %h %h, overflow %b %b, SDRAM model errors %0d, a screen word waited at most %0d clocks; cell rows showing the frame before %0d",
+				`MODE, `WALL, `FRAMES, checked, late1, late0, over_f, over_l, sdram.errors, rq_max, fd_same);
 			errors = errors + sdram.errors + over_f + over_l + (late0 != 0) + (late1 != 0);
 			$display("tb_video: %0d errors", errors);
 			$finish;
@@ -329,8 +357,10 @@ always @(posedge pclk) begin
 			if (`WALL != 0 && `NB != 0 && (x < 128 || x >= 1152 || y < 16 || y >= 784)) begin
 				ex = 24'd0;
 				if ({r, g, b} !== ex) bad("outside the field");
-			end else if (`WALL != 0) begin
-				if (`NB != 0) begin
+			end else if (`WALL != 0 || `MODE == 2) begin
+				if (`WALL == 0) begin
+					cr = `FS / 4; lc = y / 4; cc = `FS % 4; cx = x / 4;
+				end else if (`NB != 0) begin
 					cr = (y - 16) / 192; lc = 4 + (y - 16) % 192; cc = (x - 128) / 256; cx = 32 + (x - 128) % 256;
 				end else begin
 					cr = y / 200; lc = y % 200; cc = x / 320; cx = x % 320;

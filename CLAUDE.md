@@ -5,10 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Overview
 
 QuadSpeccyX4 for the Karabas Go / Mini / Mini G boards (Xilinx Spartan-6 XC6SLX25, ISE 14.7, XST): 16 Pentagon 128 on
-one FPGA, shown on one screen (1280 x 800, frame locked to the Pentagon frame, 48.88 Hz: total 1568 x 960, pixel
-clock 21/8 clk_bus = 73.6 MHz, 3 VGA lines per Spectrum line) as a 4 x 4 grid (cells of 320 x 200: paper 256 x 192 1:1,
+one FPGA, shown on one screen (1280 x 800, pixel clock 21/8 clk_bus = 73.6 MHz; by default 60 Hz, total 1488 x 824,
+the line / frame rates of CVT-RB, not locked: the wall and the full screen from the frame buffer, the full screen the
+cell of the machine at scale 4 (vga_out mode 2, 2026-11-19); OSD 1280x800 49Hz: locked to the Pentagon frame,
+48.88 Hz, total 1568 x 960, 3 VGA lines per Spectrum line) as a 4 x 4 grid (cells of 320 x 200: paper 256 x 192 1:1,
 the border 32 pixels left / right, 4 lines top / bottom; Wall border Hide: the papers side by side, one field of
-1024 x 768) or the selected one full screen at scale 3 (decided 2026-11-14, docs/ARCHITECTURE.md "Видео"). Follows karabas-go-core-quadspeccy (`../karabas-go-core-quadspeccy`, 4 machines), but a machine is not a module
+1024 x 768) or the selected one full screen (49 Hz: scale 3 from line buffers; decided 2026-11-14, docs/ARCHITECTURE.md "Видео"). Follows karabas-go-core-quadspeccy (`../karabas-go-core-quadspeccy`, 4 machines), but a machine is not a module
 any more: one CPU and one bus logic serve eight machines, the state of each machine is a context in distributed
 RAM. Board infrastructure as QuadSpeccy / karabas-go-core-tsconf: the git submodule `modules/`
 (karabas-go-modules; its `modules/CLAUDE.md` has the rules: Verilog-2001 for XST, no coregen, tests), MCU link v2,
@@ -117,7 +119,8 @@ milestone 5 (Mini / Mini G) done: works on all three boards (2026-11-15).
   as busy as 16 machines make it, `BUSY=0` random), fb_sdram + `sdram_model.v` (QuadSpeccy's, checks the SDRAM
   timing) + vga_out 1280 x 800; the border of each machine a function of its raster position and (`CFT=1`) its cell
   frame: every pixel of the wall against the memory / the function, a cell from one frame of its machine (no
-  tearing); `NB=1` the wall without the border (OSD Wall border, Menu+B: the papers one field of 1024 x 768, black
+  tearing); `MODE=2` the 60 Hz raster (its line / frame length; the full screen, `WALL=0`, the cell of `FS` x 4, one
+  frame of the machine); `NB=1` the wall without the border (OSD Wall border, Menu+B: the papers one field of 1024 x 768, black
   around; the frame shown of each cell row must change every VGA frame, so 6 frames); `WALL=0` the full screen of
   machine `FS`; late screen words, queue overflows, the longest wait of a
   screen word (21 clocks). About 1.6 min per frame.

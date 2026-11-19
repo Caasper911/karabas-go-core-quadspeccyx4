@@ -3,7 +3,8 @@
 # fb_sdram + the SDRAM model, vga_out 1280 x 800; every visible pixel checked (tb_video.v):
 #   ./run_video.sh [frames]     WALL=1 (default) the wall, WALL=0 the full screen of machine FS (5); NB=1 the wall
 #                               without the border (6 frames to see the check of the frames shown); CFT=0 the border
-#                               without the cell frame; BUSY=0 the CPU port busy at random
+#                               without the cell frame; BUSY=0 the CPU port busy at random; MODE=2 1280 x 800 at
+#                               60 Hz (not locked: the full screen the cell of FS at scale 4)
 # Prints "tb_video: <n> errors". About a minute and a half per frame.
 set -e -o pipefail
 cd "$(dirname "$0")"
@@ -19,7 +20,7 @@ MINGW*|MSYS*|CYGWIN*)
 	EXE=./tb_video ;;
 esac
 mkdir -p work_v
-DEFS="-d FRAMES=${1:-4} -d WALL=${WALL:-1} -d FS=${FS:-5} -d BUSY=${BUSY:-1} -d CFT=${CFT:-1} -d NB=${NB:-0}"
+DEFS="-d FRAMES=${1:-4} -d WALL=${WALL:-1} -d FS=${FS:-5} -d BUSY=${BUSY:-1} -d CFT=${CFT:-1} -d NB=${NB:-0} -d MODE=${MODE:-1}"
 cat > work_v/tb.prj <<PRJ
 verilog work "../../../modules/rtl/mem/kg_sdpram.v"
 verilog work "../../rtl/zx/zx_timing.v"

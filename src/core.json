@@ -23,15 +23,15 @@
     ],
     "boards": {
         "go": {
-            "build": "26111901",
+            "build": "26111902",
             "bitstream": "karabas_go.bin"
         },
         "mini": {
-            "build": "26111901",
+            "build": "26111902",
             "bitstream": "karabas_mini.bin"
         },
         "minig": {
-            "build": "26111901",
+            "build": "26111902",
             "bitstream": "karabas_minig.bin"
         }
     },
@@ -41,10 +41,11 @@
             "type": "S",
             "name": "Video",
             "options": [
-                "720x576",
-                "1280x800"
+                "720x576 49Hz",
+                "1280x800 49Hz",
+                "1280x800 60Hz"
             ],
-            "default": 1,
+            "default": 2,
             "hotkey": "Menu+V"
         },
         {

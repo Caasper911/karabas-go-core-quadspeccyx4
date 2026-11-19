@@ -23,7 +23,8 @@
  Hotkeys (zx_kbd): Win + 1..8 the machine with the keyboard and the sound (Shift + Win + 1..8: 9..16), Win + arrows
  the machine next to it (4 columns, 4 rows), Win + F11 NMI of all machines, Win + ` the wall / the selected machine full screen (the wall after the start; 720 x 576 is always
  full screen).
- OSD (core.json "osd", the "index" of the items): 0 joystick L, 1 joystick R, 2 video (0 720 x 576, 1 1280 x 800: the default),
+ OSD (core.json "osd", the "index" of the items): 0 joystick L, 1 joystick R, 2 video (0 720 x 576, 1 1280 x 800 locked to the Pentagon frame,
+ 48.88 Hz, 2 1280 x 800 at 60 Hz: the default),
  3 reset of the selected machine (F12), 4 reset of all (Menu+F12), 5 the colour of the frame of the selected cell
  in the wall (0..7 ZX colours, default 4 green), 6 NMI of the selected machine (F11), 7 AY mix (0 ABC, 1 ACB), as QuadSpeccy: 8 Tape in (0 Board: every
  machine hears TAPE_IN; 1 Core: every machine but the Tape out one hears the MIC of that one, it TAPE_IN), 9 Tape out
@@ -226,7 +227,7 @@ kg_mcu2 #(
 
 wire [2:0] joy_type_l = softsw[2:0];
 wire [2:0] joy_type_r = softsw[10:8];
-wire sw_video = softsw[16];
+wire [1:0] sw_video = softsw[17:16];   // 0 720 x 576, 1 1280 x 800 48.88 Hz, 2 1280 x 800 60 Hz
 wire sw_reset = softsw[24];
 wire sw_reset_all = softsw[32];
 wire [2:0] sw_frame_col = softsw[42:40];
@@ -278,7 +279,7 @@ reg full = 1'b0;
 always @(posedge clk_bus)
 	if (kbd_full_tgl)
 		full <= ~full;
-wire show_full = full | ~sw_video;
+wire show_full = full | (sw_video == 2'd0);
 
 // ---------------------------------------------------------------------------------------------
 // resets: the loader, the start, Reset All (OSD, Menu+F12, the button 1) all machines; Reset (OSD, F12, button 0)
@@ -623,7 +624,7 @@ osd_overlay overlay(
 	.osd_wr(osd_wr), .osd_waddr(osd_waddr), .osd_wdata(osd_wdata), .osd_en(osd_en),
 	.osd_fg(osd_fg), .osd_bg(osd_bg), .osd_alpha(osd_alpha),
 	.osd_px(osd_px), .osd_py(osd_py), .osd_pw(osd_pw), .osd_ph(osd_ph), .osd_place(osd_place), .osd_zoom(osd_zoom),
-	.s_force(sw_video ? 4'd0 : 4'd2), .sx_force(sw_video ? 4'd0 : 4'd5),
+	.s_force(sw_video != 2'd0 ? 4'd0 : 4'd2), .sx_force(sw_video != 2'd0 ? 4'd0 : 4'd5),
 	.icon_on(8'd0), .icon_act(8'd0),
 	.clk(pclk),
 	.rgb_i({vo_r, vo_g, vo_b}), .hs_i(vo_hs), .vs_i(vo_vs), .de_i(vo_de),
