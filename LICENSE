@@ -1,10 +1,16 @@
 This repository contains code under different terms. Each part keeps the terms of its authors.
 
-0. ROMs (src/roms/)
-   ----------------
+0. ROMs (src/roms/, also packed into quadspeccyx4.kg)
+   ------------------------------------------------------
    128.rom, 48.rom: the ZX Spectrum 128 / 48 ROMs, copyright (c) Amstrad plc, not covered by the MIT license below
    and no license to them is granted here. Amstrad allows them to be distributed with emulators, without charge for
    them. They are included, as with emulators and other FPGA cores, so that the core works out of the box.
+
+   esxdos089.bin: the DivMMC ROM of esxDOS 0.8.9, copyright (c) Papaya Dezign (esxdos.org), not covered by the MIT
+   license below and no license to it is granted here. esxDOS is distributed by its authors free of charge; the
+   ROM is included unchanged, as with other FPGA cores with DivMMC, and is also packed into quadspeccyx4.kg. The
+   SYS / BIN files esxDOS needs on the SD card are not in this repository: take them from the esxDOS 0.8.9
+   distribution (esxdos089.zip, esxdos.org).
 
 1. tv80 (src/rtl/tv80/)
    --------------------
