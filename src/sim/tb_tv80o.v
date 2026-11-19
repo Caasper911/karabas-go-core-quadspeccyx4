@@ -4,7 +4,7 @@
  tb_tv80o.v
 
  The equivalence of tv80_oct (one tv80 logic for eight CPUs, one clock each, tools/mkctx.py) with eight tv80_core,
- clock for clock (after tb_tv80q.v of karabas-go-quadspeccy).
+ clock for clock (after tb_tv80q.v of karabas-go-core-quadspeccy).
 
  Eight reference tv80_core and one tv80_oct on the same clock; CPU k gets its cen in slot k (of 8) in both. Each CPU
  has its own 64 KB memory of random bytes (the program: random code goes through every prefix, undocumented opcodes,

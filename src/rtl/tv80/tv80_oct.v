@@ -14,7 +14,7 @@
 
  So machine k sees its CPU as a tv80_core whose cen is in slot k: the outputs change with the clock of cen (from the
  next clock on, as a tv80_core), the asynchronous reset is synchronous (reset_n of CPU k in its slot). The quad core
- of karabas-go-quadspeccy (tv80_quad) needed two clocks per CPU, its cen and a "peek" with the same logic.
+ of karabas-go-core-quadspeccy (tv80_quad) needed two clocks per CPU, its cen and a "peek" with the same logic.
  src/sim/tb_tv80o.v compares tv80_oct with eight tv80_core clock for clock.
 */
 

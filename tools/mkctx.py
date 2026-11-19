@@ -1,7 +1,7 @@
 """mkctx.py tv80_core.v <out_dir> [N]
 
 Makes the N-context tv80 core out of tv80_core (N = 8 by default: tv80o_core.v and tv80o_reg.v in <out_dir>): one
-copy of the logic, the state of N CPUs, one clock per CPU. After tools/mkquad.py of karabas-go-quadspeccy (four
+copy of the logic, the state of N CPUs, one clock per CPU. After tools/mkquad.py of karabas-go-core-quadspeccy (four
 contexts, two clocks per CPU: its cen and a "peek" clock that shows the outputs); here the outputs come from a
 second read port of the state instead, so a CPU needs one clock.
 

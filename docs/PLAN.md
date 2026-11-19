@@ -212,8 +212,10 @@ ROM; образ один на все машины.
       папки; сборка 26111601
 - [x] Репозиторий GitHub → `Caasper911/karabas-go-core-quadspeccyx4` (2026-11-19, как другие ядра
       `karabas-go-core-*`; старые адреса GitHub перенаправляет); ядро, `id` и `.kg` прежние
-- [ ] Локальная папка `c:\hobby\karabas-go-quadspeccyx4` → `karabas-go-core-quadspeccyx4` (переименовать при
-      закрытом VS Code, потом связь памяти Claude для новой папки)
+- [x] Локальная папка `c:\hobby\karabas-go-quadspeccyx4` → `karabas-go-core-quadspeccyx4` (2026-11-19; QuadSpeccy
+      так же: `karabas-go-core-quadspeccy`); чаты Claude перенесены в каталоги новых папок, ссылки на
+      `../karabas-go-quadspeccy` исправлены
+- [ ] Связь памяти Claude для новых папок: `karabas-go-notes/link.sh` для обеих (запуск вручную)
 
 ## Буфер кадра стены: точный мультиколор в ячейках (запрос пользователя 2026-11-15)
 

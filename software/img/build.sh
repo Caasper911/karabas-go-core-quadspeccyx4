@@ -2,13 +2,13 @@
 # build.sh: software/img/demotrd.img, an SD card image of 512 MB (FAT32) for QuadSpeccyX4: ESXDOS 0.8.9 (SYS, BIN,
 # TMP of the distribution esxdos089.zip: they must match the ROM of the core, src/roms/esxdos089.bin = its
 # ESXMMC.BIN), the dot commands of software/launcher in /BIN, autoboot on (AutoBoot=1 in its /SYS/CONFIG/ESXDOS.CFG,
-# /SYS/AUTOBOOT.BAS: 10 .rndtrd /DEMOTRD) and the demos of ../karabas-go-quadspeccy/DEMOTRD in /DEMOTRD.
+# /SYS/AUTOBOOT.BAS: 10 .rndtrd /DEMOTRD) and the demos of ../karabas-go-core-quadspeccy/DEMOTRD in /DEMOTRD.
 # Env: ESXZIP, DEMODIR, MB, OUT (the image, demotrd.img by default), PYTHON, KEEP=1 (keep the staging directory work/).
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
 top=$here/../..
 ESXZIP=${ESXZIP:-$top/../karabas_ex/firmware/src/fpga/profi/rom/esxdos089.zip}
-DEMODIR=${DEMODIR:-$top/../karabas-go-quadspeccy/DEMOTRD}
+DEMODIR=${DEMODIR:-$top/../karabas-go-core-quadspeccy/DEMOTRD}
 MB=${MB:-512}
 PYTHON=${PYTHON:-python}
 OUT=${OUT:-$here/demotrd.img}
