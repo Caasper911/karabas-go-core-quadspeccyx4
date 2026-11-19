@@ -210,7 +210,10 @@ ROM; образ один на все машины.
       `tools/mkimg.py` — `QSPECCYX4`
 - [x] Репозиторий GitHub `Caasper911/karabas-go-quadspeccyx4` (`origin` переставлен), связь памяти Claude для новой
       папки; сборка 26111601
-- [ ] Локальная папка `c:\hobby\karabas-go-quadspeccyx4` (переименовать при закрытом VS Code)
+- [x] Репозиторий GitHub → `Caasper911/karabas-go-core-quadspeccyx4` (2026-11-19, как другие ядра
+      `karabas-go-core-*`; старые адреса GitHub перенаправляет); ядро, `id` и `.kg` прежние
+- [ ] Локальная папка `c:\hobby\karabas-go-quadspeccyx4` → `karabas-go-core-quadspeccyx4` (переименовать при
+      закрытом VS Code, потом связь памяти Claude для новой папки)
 
 ## Буфер кадра стены: точный мультиколор в ячейках (запрос пользователя 2026-11-15)
 
