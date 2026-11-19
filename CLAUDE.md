@@ -6,8 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 QuadSpeccyX4 for the Karabas Go / Mini / Mini G boards (Xilinx Spartan-6 XC6SLX25, ISE 14.7, XST): 16 Pentagon 128 on
 one FPGA, shown on one screen (1280 x 800, frame locked to the Pentagon frame, 48.88 Hz: total 1568 x 960, pixel
-clock 21/8 clk_bus = 73.6 MHz, 3 VGA lines per Spectrum line) as a 4 x 4 grid (paper 256 x 192 1:1, a 1 pixel
-border) or the selected one full screen at scale 3 (decided 2026-11-14, docs/ARCHITECTURE.md "Видео"). Follows karabas-go-quadspeccy (`../karabas-go-quadspeccy`, 4 machines), but a machine is not a module
+clock 21/8 clk_bus = 73.6 MHz, 3 VGA lines per Spectrum line) as a 4 x 4 grid (cells of 320 x 200: paper 256 x 192 1:1,
+the border 32 pixels left / right, 4 lines top / bottom; Wall border Hide: the papers side by side, one field of
+1024 x 768) or the selected one full screen at scale 3 (decided 2026-11-14, docs/ARCHITECTURE.md "Видео"). Follows karabas-go-quadspeccy (`../karabas-go-quadspeccy`, 4 machines), but a machine is not a module
 any more: one CPU and one bus logic serve eight machines, the state of each machine is a context in distributed
 RAM. Board infrastructure as QuadSpeccy / karabas-go-core-tsconf: the git submodule `modules/`
 (karabas-go-modules; its `modules/CLAUDE.md` has the rules: Verilog-2001 for XST, no coregen, tests), MCU link v2,
