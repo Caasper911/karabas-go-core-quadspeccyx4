@@ -34,6 +34,15 @@
   (Reset All + autoexec), выберут один и тот же файл.
 - `.rndtap <папка>` (`software/launcher/RNDTAP`): то же для `*.TAP`: вставляет ленту (`.tapein`) и выполняет
   `LOAD ""` в 48 BASIC (из 128 BASIC переключает ПЗУ, если пейджинг не заблокирован).
+- `.rndtrd <папка>` (`software/launcher/RNDTRD`): то же для `*.TRD`: подключает образ диском A эмулятора TR-DOS
+  ESXDOS (`.vdisk 0`) и выполняет `RANDOMIZE USR 15619: REM : RUN` (запуск `boot`); программа BASIC при этом
+  заменяется. Нужны файлы SYS из дистрибутива ESXDOS 0.8.9 (с другими машина циклически перезапускается при старте).
+- Готовый образ SD с демо (`software/img/build.sh` → `software/img/demotrd.img`, 512 МБ FAT32, в git не входит):
+  ESXDOS 0.8.9 (`SYS`, `BIN`, `TMP` из дистрибутива `esxdos089.zip`, плюс `RNDSNA` / `RNDTAP` / `RNDTRD`), автозапуск
+  (`AutoBoot=1` в `/SYS/CONFIG/ESXDOS.CFG`, `/SYS/AUTOBOOT.BAS`: `10 .rndtrd /DEMOTRD`), в `/DEMOTRD` — 522 TRD
+  (длинные имена + короткие `0001.TRD`). Размер и имя: `MB=100 OUT=software/img/demotrd100.img` (кластер FAT32
+  меньше 4 КБ у образов меньше 260 МБ).
+  После старта или Reset All каждая машина запускает случайное демо.
 
 ## Устройство в двух словах
 
@@ -59,7 +68,9 @@
   (каждая точка VGA против памяти; `WALL=1` — стена, `MODE=0` — 720×576), `run_ps.sh` (движок после синтеза XST
   против RTL), `run_sd.sh` (16 машин грузят ESXDOS с образа), `run_core.sh` (всё ядро).
 - `src/test/run_timing.sh [cpu8|wall8]`: пробная сборка на XC6SLX25.
-- `software/launcher/`: dot-команды ESXDOS (`rndsna.asm`, `rndtap.asm`, общая часть `rndsel.inc`; сборка `sjasmplus rndsna.asm` → `RNDSNA`, `sjasmplus rndtap.asm` → `RNDTAP`).
+- `software/launcher/`: dot-команды ESXDOS (`rndsna.asm`, `rndtap.asm`, `rndtrd.asm`, общая часть `rndsel.inc`; сборка `sjasmplus rndsna.asm` → `RNDSNA`, `sjasmplus rndtap.asm` → `RNDTAP`, `rndtrd.asm` → `RNDTRD`).
+- `software/img/build.sh`: образ SD с демо (`tools/mkfat32.py` — образ FAT32 с длинными именами, `tools/mkbas.py` —
+  BASIC-файл с заголовком +3DOS, как `SAVE *` ESXDOS).
 - `modules/`: общие модули Karabas Go (сабмодуль karabas-go-modules).
 
 ```sh

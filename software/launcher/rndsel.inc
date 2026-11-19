@@ -1,4 +1,4 @@
-; The common part of RNDSNA / RNDTAP (ESXDOS 0.8.x dot commands): the argument <dir>, a random
+; The common part of RNDSNA / RNDTAP / RNDTRD (ESXDOS 0.8.x dot commands): the argument <dir>, a random
 ; *.<EXT> of it, the ESXDOS command line CMDWORD "<dir>/<file>" and the stub that runs it.
 ;
 ; The including file defines: CMDWORD (define, the ESXDOS command and a space), EXT1..EXT3 (the
