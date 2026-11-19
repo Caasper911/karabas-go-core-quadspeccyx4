@@ -23,15 +23,15 @@
     ],
     "boards": {
         "go": {
-            "build": "26111604",
+            "build": "26111901",
             "bitstream": "karabas_go.bin"
         },
         "mini": {
-            "build": "26111604",
+            "build": "26111901",
             "bitstream": "karabas_mini.bin"
         },
         "minig": {
-            "build": "26111604",
+            "build": "26111901",
             "bitstream": "karabas_minig.bin"
         }
     },
